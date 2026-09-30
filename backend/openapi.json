@@ -1,0 +1,1253 @@
+{
+ "openapi": "3.1.0",
+ "info": {
+  "title": "결로·곰팡이 예측 API",
+  "version": "1.0.0"
+ },
+ "paths": {
+  "/api/v1/devices": {
+   "get": {
+    "tags": [
+     "devices"
+    ],
+    "summary": "List Devices",
+    "operationId": "list_devices_api_v1_devices_get",
+    "parameters": [
+     {
+      "name": "authorization",
+      "in": "header",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "default": "",
+       "title": "Authorization"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/Device"
+         },
+         "title": "Response List Devices Api V1 Devices Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/devices/{device_id}": {
+   "get": {
+    "tags": [
+     "devices"
+    ],
+    "summary": "Device",
+    "operationId": "device_api_v1_devices__device_id__get",
+    "parameters": [
+     {
+      "name": "device_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Device Id"
+      }
+     },
+     {
+      "name": "authorization",
+      "in": "header",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "default": "",
+       "title": "Authorization"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Device"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "patch": {
+    "tags": [
+     "devices"
+    ],
+    "summary": "Patch Device",
+    "operationId": "patch_device_api_v1_devices__device_id__patch",
+    "parameters": [
+     {
+      "name": "device_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Device Id"
+      }
+     },
+     {
+      "name": "authorization",
+      "in": "header",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "default": "",
+       "title": "Authorization"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/DevicePatch"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Device"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/devices/{device_id}/current": {
+   "get": {
+    "tags": [
+     "devices"
+    ],
+    "summary": "Current",
+    "operationId": "current_api_v1_devices__device_id__current_get",
+    "parameters": [
+     {
+      "name": "device_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Device Id"
+      }
+     },
+     {
+      "name": "authorization",
+      "in": "header",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "default": "",
+       "title": "Authorization"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Current"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/devices/{device_id}/calibration": {
+   "post": {
+    "tags": [
+     "devices"
+    ],
+    "summary": "Calibrate",
+    "description": "§8.4 오프셋. 이후 수신분부터 적용된다.",
+    "operationId": "calibrate_api_v1_devices__device_id__calibration_post",
+    "parameters": [
+     {
+      "name": "device_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Device Id"
+      }
+     },
+     {
+      "name": "authorization",
+      "in": "header",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "default": "",
+       "title": "Authorization"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/Calibration"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Device"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/devices/{device_id}/series": {
+   "get": {
+    "tags": [
+     "readings"
+    ],
+    "summary": "Series",
+    "operationId": "series_api_v1_devices__device_id__series_get",
+    "parameters": [
+     {
+      "name": "device_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Device Id"
+      }
+     },
+     {
+      "name": "from",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "date-time",
+       "title": "From"
+      }
+     },
+     {
+      "name": "to",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "date-time",
+       "title": "To"
+      }
+     },
+     {
+      "name": "bucket",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "enum": [
+        "raw",
+        "1m",
+        "1h",
+        "1d"
+       ],
+       "type": "string",
+       "default": "1m",
+       "title": "Bucket"
+      }
+     },
+     {
+      "name": "authorization",
+      "in": "header",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "default": "",
+       "title": "Authorization"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/ProbeReading"
+         },
+         "title": "Response Series Api V1 Devices  Device Id  Series Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/devices/{device_id}/events": {
+   "get": {
+    "tags": [
+     "events"
+    ],
+    "summary": "Events",
+    "operationId": "events_api_v1_devices__device_id__events_get",
+    "parameters": [
+     {
+      "name": "device_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Device Id"
+      }
+     },
+     {
+      "name": "from",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "date-time",
+       "title": "From"
+      }
+     },
+     {
+      "name": "to",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "date-time",
+       "title": "To"
+      }
+     },
+     {
+      "name": "authorization",
+      "in": "header",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "default": "",
+       "title": "Authorization"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/Event"
+         },
+         "title": "Response Events Api V1 Devices  Device Id  Events Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/devices/{device_id}/diagnostics": {
+   "get": {
+    "tags": [
+     "reports"
+    ],
+    "summary": "Diagnostics",
+    "operationId": "diagnostics_api_v1_devices__device_id__diagnostics_get",
+    "parameters": [
+     {
+      "name": "device_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Device Id"
+      }
+     },
+     {
+      "name": "days",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "maximum": 365,
+       "minimum": 1,
+       "default": 30,
+       "title": "Days"
+      }
+     },
+     {
+      "name": "authorization",
+      "in": "header",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "default": "",
+       "title": "Authorization"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/Diagnostic"
+         },
+         "title": "Response Diagnostics Api V1 Devices  Device Id  Diagnostics Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/reports": {
+   "post": {
+    "tags": [
+     "reports"
+    ],
+    "summary": "Report",
+    "operationId": "report_api_v1_reports_post",
+    "parameters": [
+     {
+      "name": "authorization",
+      "in": "header",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "default": "",
+       "title": "Authorization"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ReportRequest"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Report"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/push/vapid-public-key": {
+   "get": {
+    "tags": [
+     "push"
+    ],
+    "summary": "Vapid Public Key",
+    "operationId": "vapid_public_key_api_v1_push_vapid_public_key_get",
+    "parameters": [
+     {
+      "name": "authorization",
+      "in": "header",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "default": "",
+       "title": "Authorization"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "string",
+         "title": "Response Vapid Public Key Api V1 Push Vapid Public Key Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/push/subscribe": {
+   "post": {
+    "tags": [
+     "push"
+    ],
+    "summary": "Subscribe",
+    "operationId": "subscribe_api_v1_push_subscribe_post",
+    "parameters": [
+     {
+      "name": "authorization",
+      "in": "header",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "default": "",
+       "title": "Authorization"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/PushSubscription"
+       }
+      }
+     }
+    },
+    "responses": {
+     "204": {
+      "description": "Successful Response"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  }
+ },
+ "components": {
+  "schemas": {
+   "Calibration": {
+    "properties": {
+     "t_air": {
+      "type": "number",
+      "title": "T Air",
+      "default": 0
+     },
+     "rh": {
+      "type": "number",
+      "title": "Rh",
+      "default": 0
+     },
+     "t_surf": {
+      "type": "number",
+      "title": "T Surf",
+      "default": 0
+     }
+    },
+    "type": "object",
+    "title": "Calibration"
+   },
+   "Current": {
+    "properties": {
+     "device_id": {
+      "type": "string",
+      "title": "Device Id"
+     },
+     "state": {
+      "type": "string",
+      "enum": [
+       "SAFE",
+       "WATCH",
+       "ALERT",
+       "CONDENSING",
+       "STALE"
+      ],
+      "title": "State"
+     },
+     "forecast": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Forecast"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "probes": {
+      "items": {
+       "$ref": "#/components/schemas/ProbeReading"
+      },
+      "type": "array",
+      "title": "Probes"
+     }
+    },
+    "type": "object",
+    "required": [
+     "device_id",
+     "state",
+     "forecast",
+     "probes"
+    ],
+    "title": "Current",
+    "description": "GET current 응답이자 WS 'reading' 메시지 본문."
+   },
+   "Device": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "home_id": {
+      "type": "string",
+      "title": "Home Id"
+     },
+     "label": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Label"
+     },
+     "location_tag": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Location Tag"
+     },
+     "fw": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Fw"
+     },
+     "last_seen": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Last Seen"
+     },
+     "online": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Online"
+     },
+     "calib_t_air": {
+      "type": "number",
+      "title": "Calib T Air"
+     },
+     "calib_rh": {
+      "type": "number",
+      "title": "Calib Rh"
+     },
+     "calib_t_surf": {
+      "type": "number",
+      "title": "Calib T Surf"
+     },
+     "state": {
+      "type": "string",
+      "enum": [
+       "SAFE",
+       "WATCH",
+       "ALERT",
+       "CONDENSING",
+       "STALE"
+      ],
+      "title": "State"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "home_id",
+     "label",
+     "location_tag",
+     "fw",
+     "last_seen",
+     "online",
+     "calib_t_air",
+     "calib_rh",
+     "calib_t_surf",
+     "state"
+    ],
+    "title": "Device"
+   },
+   "DevicePatch": {
+    "properties": {
+     "label": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Label"
+     },
+     "location_tag": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Location Tag"
+     }
+    },
+    "type": "object",
+    "title": "DevicePatch"
+   },
+   "Diagnostic": {
+    "properties": {
+     "day": {
+      "type": "string",
+      "format": "date",
+      "title": "Day"
+     },
+     "f_rsi": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "F Rsi"
+     },
+     "tdr": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Tdr"
+     },
+     "t_ext_avg": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "T Ext Avg"
+     },
+     "minutes_alert": {
+      "type": "number",
+      "title": "Minutes Alert"
+     },
+     "mould_dose": {
+      "type": "number",
+      "title": "Mould Dose"
+     }
+    },
+    "type": "object",
+    "required": [
+     "day",
+     "f_rsi",
+     "tdr",
+     "t_ext_avg",
+     "minutes_alert",
+     "mould_dose"
+    ],
+    "title": "Diagnostic"
+   },
+   "Event": {
+    "properties": {
+     "id": {
+      "type": "integer",
+      "title": "Id"
+     },
+     "state": {
+      "type": "string",
+      "enum": [
+       "SAFE",
+       "WATCH",
+       "ALERT",
+       "CONDENSING",
+       "STALE"
+      ],
+      "title": "State"
+     },
+     "started_at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Started At"
+     },
+     "ended_at": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Ended At"
+     },
+     "peak_rh_surf": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Peak Rh Surf"
+     },
+     "min_delta_t": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Min Delta T"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "state",
+     "started_at",
+     "ended_at",
+     "peak_rh_surf",
+     "min_delta_t"
+    ],
+    "title": "Event"
+   },
+   "Forecast": {
+    "properties": {
+     "target": {
+      "type": "number",
+      "title": "Target"
+     },
+     "hours_low": {
+      "type": "number",
+      "title": "Hours Low"
+     },
+     "hours_high": {
+      "type": "number",
+      "title": "Hours High"
+     },
+     "slope": {
+      "type": "number",
+      "title": "Slope"
+     },
+     "r2": {
+      "type": "number",
+      "title": "R2"
+     }
+    },
+    "type": "object",
+    "required": [
+     "target",
+     "hours_low",
+     "hours_high",
+     "slope",
+     "r2"
+    ],
+    "title": "Forecast"
+   },
+   "HTTPValidationError": {
+    "properties": {
+     "detail": {
+      "items": {
+       "$ref": "#/components/schemas/ValidationError"
+      },
+      "type": "array",
+      "title": "Detail"
+     }
+    },
+    "type": "object",
+    "title": "HTTPValidationError"
+   },
+   "ProbeReading": {
+    "properties": {
+     "time": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Time"
+     },
+     "probe_id": {
+      "type": "string",
+      "title": "Probe Id"
+     },
+     "t_air": {
+      "type": "number",
+      "title": "T Air"
+     },
+     "rh": {
+      "type": "number",
+      "title": "Rh"
+     },
+     "t_surf": {
+      "type": "number",
+      "title": "T Surf"
+     },
+     "t_dew": {
+      "type": "number",
+      "title": "T Dew"
+     },
+     "t80": {
+      "type": "number",
+      "title": "T80"
+     },
+     "rh_surf": {
+      "type": "number",
+      "title": "Rh Surf"
+     }
+    },
+    "type": "object",
+    "required": [
+     "time",
+     "probe_id",
+     "t_air",
+     "rh",
+     "t_surf",
+     "t_dew",
+     "t80",
+     "rh_surf"
+    ],
+    "title": "ProbeReading"
+   },
+   "PushSubscription": {
+    "properties": {
+     "endpoint": {
+      "type": "string",
+      "title": "Endpoint"
+     },
+     "keys": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "type": "object",
+      "title": "Keys"
+     },
+     "quiet_start": {
+      "type": "integer",
+      "maximum": 23.0,
+      "minimum": 0.0,
+      "title": "Quiet Start",
+      "default": 23
+     },
+     "quiet_end": {
+      "type": "integer",
+      "maximum": 23.0,
+      "minimum": 0.0,
+      "title": "Quiet End",
+      "default": 7
+     }
+    },
+    "type": "object",
+    "required": [
+     "endpoint",
+     "keys"
+    ],
+    "title": "PushSubscription"
+   },
+   "Report": {
+    "properties": {
+     "device": {
+      "$ref": "#/components/schemas/Device"
+     },
+     "from": {
+      "type": "string",
+      "format": "date-time",
+      "title": "From"
+     },
+     "to": {
+      "type": "string",
+      "format": "date-time",
+      "title": "To"
+     },
+     "minutes_alert": {
+      "type": "number",
+      "title": "Minutes Alert"
+     },
+     "minutes_condensing": {
+      "type": "number",
+      "title": "Minutes Condensing"
+     },
+     "event_days": {
+      "items": {
+       "type": "string",
+       "format": "date"
+      },
+      "type": "array",
+      "title": "Event Days"
+     },
+     "mean_rh_surf": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Mean Rh Surf"
+     },
+     "diagnostics": {
+      "items": {
+       "$ref": "#/components/schemas/Diagnostic"
+      },
+      "type": "array",
+      "title": "Diagnostics"
+     },
+     "weather_sources": {
+      "additionalProperties": {
+       "type": "integer"
+      },
+      "type": "object",
+      "title": "Weather Sources"
+     }
+    },
+    "type": "object",
+    "required": [
+     "device",
+     "from",
+     "to",
+     "minutes_alert",
+     "minutes_condensing",
+     "event_days",
+     "mean_rh_surf",
+     "diagnostics",
+     "weather_sources"
+    ],
+    "title": "Report"
+   },
+   "ReportRequest": {
+    "properties": {
+     "device_id": {
+      "type": "string",
+      "title": "Device Id"
+     },
+     "from": {
+      "type": "string",
+      "format": "date-time",
+      "title": "From"
+     },
+     "to": {
+      "type": "string",
+      "format": "date-time",
+      "title": "To"
+     }
+    },
+    "type": "object",
+    "required": [
+     "device_id",
+     "from",
+     "to"
+    ],
+    "title": "ReportRequest"
+   },
+   "ValidationError": {
+    "properties": {
+     "loc": {
+      "items": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "integer"
+        }
+       ]
+      },
+      "type": "array",
+      "title": "Location"
+     },
+     "msg": {
+      "type": "string",
+      "title": "Message"
+     },
+     "type": {
+      "type": "string",
+      "title": "Error Type"
+     }
+    },
+    "type": "object",
+    "required": [
+     "loc",
+     "msg",
+     "type"
+    ],
+    "title": "ValidationError"
+   }
+  }
+ }
+}

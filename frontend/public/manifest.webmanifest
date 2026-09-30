@@ -1,0 +1,9 @@
+{
+  "name": "벽면 곰팡이 예보",
+  "short_name": "곰팡이예보",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f9fafb",
+  "theme_color": "#1d4ed8",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

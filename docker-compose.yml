@@ -1,0 +1,36 @@
+# §7.3 확정 구성: API + DB는 팀원 PC에서, 브로커는 HiveMQ Cloud(관리형).
+# 로컬 Mosquitto는 오프라인 작업용 보조 — `docker compose --profile offline up`
+# WSL2: 이 저장소를 /mnt/c 가 아니라 WSL 내부(~/)에 clone 할 것 (§7.4)
+services:
+  db:
+    image: timescale/timescaledb:latest-pg17
+    environment:
+      POSTGRES_USER: dg
+      POSTGRES_PASSWORD: dg
+      POSTGRES_DB: dg
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+      - ./backend/app/db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    ports: ["5432:5432"]
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "dg"]
+      interval: 3s
+      retries: 20
+
+  api:
+    build: ./backend
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://dg:dg@db:5432/dg
+    depends_on:
+      db: { condition: service_healthy }
+    ports: ["8000:8000"]
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    command: mosquitto -c /mosquitto-no-auth.conf
+    ports: ["1883:1883"]
+    profiles: [offline]
+
+volumes:
+  dbdata:
