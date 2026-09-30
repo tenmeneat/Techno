@@ -14,6 +14,7 @@ MQTT_TLS = env("MQTT_TLS", "false").lower() == "true"  # HiveMQ Cloud = true, 88
 
 API_TOKEN = env("API_TOKEN", "")  # 비어 있으면 인증 생략 (로컬 개발)
 CORS_ORIGINS = env("CORS_ORIGINS", "http://localhost:3000").split(",")
+STATIC_DIR = env("STATIC_DIR", "static")  # 프런트 빌드 산출물. 없으면 API만 뜬다
 
 # 외기온 (§4.5)
 REGION_CODE = env("REGION_CODE", "seoul")

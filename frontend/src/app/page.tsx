@@ -31,7 +31,7 @@ function DeviceCard({ device }: { device: Device }) {
   const fc = cur?.forecast;
 
   return (
-    <Link href={`/devices/${device.id}`} className="block rounded-2xl bg-white p-4 shadow-sm">
+    <Link href={`/device/?id=${encodeURIComponent(device.id)}`} className="block rounded-2xl bg-white p-4 shadow-sm">
       <div className="mb-3 flex items-center justify-between">
         <div>
           <div className="font-semibold">{device.label ?? device.id}</div>

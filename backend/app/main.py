@@ -1,9 +1,11 @@
 import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.api.v1 import devices, events, push, readings, reports, ws
 from app.core import config
@@ -41,3 +43,7 @@ for m in (devices, readings, events, reports, push):
     api.include_router(m.router)
 app.include_router(api)
 app.include_router(ws.router)
+
+# 프런트 정적 빌드(frontend/out)를 같은 출처로 서빙. API 라우트 뒤에 마운트해야 /api, /ws가 먼저 잡힌다
+if os.path.isdir(config.STATIC_DIR):
+    app.mount("/", StaticFiles(directory=config.STATIC_DIR, html=True), name="web")

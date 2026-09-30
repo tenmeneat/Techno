@@ -50,7 +50,7 @@ async def on_state(device_id: str, state: str):
     """상태 진입 시 1회. events 행이 한 번만 생기므로 중복 발송 없음."""
     if state in STATE_PUSH:
         title, body = STATE_PUSH[state]
-        await send(title, body, f"/devices/{device_id}", bypass_quiet=state == "CONDENSING")
+        await send(title, body, f"/device/?id={device_id}", bypass_quiet=state == "CONDENSING")
 
 
 async def on_forecast(device_id: str, state: str, fc: Forecast):
@@ -65,4 +65,4 @@ async def on_forecast(device_id: str, state: str, fc: Forecast):
     what = "곰팡이 위험 구간" if fc.target < 100 else "결로"
     await send("곧 습해집니다",
                f"약 {fc.hours_low:.1f}–{fc.hours_high:.1f}시간 뒤 {what} 진입 예상. 미리 환기하세요.",
-               f"/devices/{device_id}")
+               f"/device/?id={device_id}")

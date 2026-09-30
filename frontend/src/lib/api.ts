@@ -14,7 +14,8 @@ export type LiveMessage =
   | ({ type: "reading" } & Current)
   | { type: "state"; device_id: string; state: StateName; at: string };
 
-export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+// 배포 시 비움 = 같은 출처(FastAPI가 프런트를 서빙). 로컬 `npm run dev`는 .env.local에서 http://localhost:8000
+export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
 const TOKEN = process.env.NEXT_PUBLIC_API_TOKEN ?? "";
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
@@ -34,7 +35,7 @@ export const post = <T>(path: string, body: unknown, method = "POST") =>
   api<T>(path, { method, body: JSON.stringify(body) });
 
 export const wsUrl = (deviceId = "*") =>
-  `${API_URL.replace(/^http/, "ws")}/ws/live?device_id=${encodeURIComponent(deviceId)}&token=${TOKEN}`;
+  `${(API_URL || location.origin).replace(/^http/, "ws")}/ws/live?device_id=${encodeURIComponent(deviceId)}&token=${TOKEN}`;
 
 // 대시보드 기간 → 요청 버킷 (§10.3). 원본 30초 샘플은 요청하지 않는다
 export const RANGES = {

@@ -1,16 +1,21 @@
 "use client";
 // 상세 차트 (§10.2): Ts / Td / T80 3선 + 위험 밴드, 24h / 7d / 30d
 import { useQuery } from "@tanstack/react-query";
-import { useParams } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useMemo, useState } from "react";
 import { RiskChart } from "@/components/RiskChart";
 import { StateBadge } from "@/components/StateBadge";
 import { api, type Current, type Event, type ProbeReading, RANGES, type RangeKey, rangeParams } from "@/lib/api";
 import { hhmm, STATE } from "@/lib/format";
 import { useLive } from "@/lib/live";
 
+// 정적 export라 동적 경로 대신 /device/?id=... (useSearchParams는 Suspense 안에서만)
 export default function DevicePage() {
-  const { id } = useParams<{ id: string }>();
+  return <Suspense><DeviceView /></Suspense>;
+}
+
+function DeviceView() {
+  const id = useSearchParams().get("id") ?? "";
   const [range, setRange] = useState<RangeKey>("24h");
   useLive(id);
 
