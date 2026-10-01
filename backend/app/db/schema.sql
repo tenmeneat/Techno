@@ -42,15 +42,16 @@ CREATE MATERIALIZED VIEW readings_1m WITH (timescaledb.continuous, timescaledb.m
 SELECT time_bucket('1 minute', time) AS bucket, device_id, probe_id,
        avg(t_air) AS t_air, avg(rh) AS rh, avg(t_surf) AS t_surf, avg(t_dew) AS t_dew, avg(rh_surf) AS rh_surf
 FROM readings GROUP BY 1, 2, 3 WITH NO DATA;
+-- start_offset은 기기 오프라인 버퍼(최대 6시간, §8.2)보다 넉넉해야 늦게 온 백로그도 집계된다
 SELECT add_continuous_aggregate_policy('readings_1m',
-    start_offset => INTERVAL '1 hour', end_offset => INTERVAL '1 minute', schedule_interval => INTERVAL '1 minute');
+    start_offset => INTERVAL '1 day', end_offset => INTERVAL '1 minute', schedule_interval => INTERVAL '1 minute');
 
 CREATE MATERIALIZED VIEW readings_1h WITH (timescaledb.continuous, timescaledb.materialized_only = false) AS
 SELECT time_bucket('1 hour', time) AS bucket, device_id, probe_id,
        avg(t_air) AS t_air, avg(rh) AS rh, avg(t_surf) AS t_surf, avg(t_dew) AS t_dew, avg(rh_surf) AS rh_surf
 FROM readings GROUP BY 1, 2, 3 WITH NO DATA;
 SELECT add_continuous_aggregate_policy('readings_1h',
-    start_offset => INTERVAL '3 days', end_offset => INTERVAL '1 hour', schedule_interval => INTERVAL '30 minutes');
+    start_offset => INTERVAL '7 days', end_offset => INTERVAL '1 hour', schedule_interval => INTERVAL '30 minutes');
 
 ALTER TABLE readings SET (timescaledb.compress, timescaledb.compress_segmentby = 'device_id, probe_id');
 SELECT add_compression_policy('readings', INTERVAL '7 days');

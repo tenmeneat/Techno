@@ -8,3 +8,4 @@ __pycache__/
 next-env.d.ts
 *.docx
 out/
+.env*.local
