@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Literal
 
 from fastapi import APIRouter, Query
@@ -11,10 +11,10 @@ router = APIRouter(prefix="/devices", tags=["readings"])
 
 # bucket → (원천 테이블/뷰, 시간 컬럼, 버킷 폭). 장기 그래프는 집계 뷰를 읽는다(§9.4)
 SOURCES = {
-    "raw": ("readings", "time", "1 second"),
-    "1m": ("readings_1m", "bucket", "1 minute"),
-    "1h": ("readings_1h", "bucket", "1 hour"),
-    "1d": ("readings_1h", "bucket", "1 day"),
+    "raw": ("readings", "time", timedelta(seconds=1)),
+    "1m": ("readings_1m", "bucket", timedelta(minutes=1)),
+    "1h": ("readings_1h", "bucket", timedelta(hours=1)),
+    "1d": ("readings_1h", "bucket", timedelta(days=1)),
 }
 
 

@@ -51,8 +51,9 @@ class Runtime:
     rhs: deque = field(default_factory=lambda: deque(maxlen=90))  # (epoch, 최악 프로브 RHs)
     state: str = "SAFE"  # 외부에 보이는 상태 (STALE 포함)
     event_id: int | None = None
+    event_started: datetime | None = None
     forecast: Forecast | None = None
-    last_ts: float = 0.0
+    last_rx: float = 0.0  # 수신한 벽시계 시각. STALE은 '마지막 수신 후' 기준(백로그의 과거 ts와 무관)
 
 
 runtimes: dict[str, Runtime] = defaultdict(Runtime)
@@ -62,13 +63,15 @@ async def set_state(device_id: str, rt: Runtime, new: str, at: datetime):
     if new == rt.state:
         return
     async with db().acquire() as con:
-        if rt.event_id:
+        if rt.event_id:  # STALE(벽시계 시작) 뒤 과거 ts 백로그가 와도 종료가 시작보다 앞서지 않게
+            at = max(at, rt.event_started)
             await con.execute("UPDATE events SET ended_at = $2 WHERE id = $1", rt.event_id, at)
         rt.event_id = None
         if new != "SAFE":
             rt.event_id = await con.fetchval(
                 "INSERT INTO events (device_id, state, started_at) VALUES ($1, $2, $3) RETURNING id",
                 device_id, new, at)
+            rt.event_started = at
     rt.state = new
     await broadcast(device_id, {"type": "state", "device_id": device_id, "state": new, "at": at.isoformat()})
     await notifier.on_state(device_id, new)
@@ -100,7 +103,7 @@ async def handle_telemetry(home_id: str, device_id: str, msg: Telemetry):
 
     # 판정은 가장 위험한 프로브 기준
     rt = runtimes[device_id]
-    rt.last_ts = msg.ts
+    rt.last_rx = time.time()
     worst = max(p["rh_surf"] for p in probes)
     rt.rhs.append((msg.ts, worst))
     median5 = statistics.median(y for t, y in rt.rhs if msg.ts - t < 300)  # §5.5 5분 중앙값
@@ -162,5 +165,5 @@ async def watch_stale():
         await asyncio.sleep(30)
         now = time.time()
         for device_id, rt in list(runtimes.items()):
-            if rt.state != "STALE" and now - rt.last_ts > STALE_AFTER_S:
+            if rt.state != "STALE" and now - rt.last_rx > STALE_AFTER_S:
                 await set_state(device_id, rt, "STALE", datetime.now(UTC))

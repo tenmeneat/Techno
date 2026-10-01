@@ -38,11 +38,13 @@ async def report(body: ReportRequest):
     mean_rhs = await db().fetchval(
         "SELECT avg(rh_surf) FROM readings_1h WHERE device_id = $1 AND bucket >= $2 AND bucket < $3", *args)
     sources = await db().fetch(
-        "SELECT source, count(*) AS n FROM weather_hourly WHERE time >= $2 AND time < $3 GROUP BY source", *args)
+        "SELECT source, count(*) AS n FROM weather_hourly WHERE time >= $1 AND time < $2 GROUP BY source",
+        body.from_, body.to)
     return {
         "device": device, "from_": body.from_, "to": body.to,
         "minutes_alert": float(minutes.get("ALERT", 0)), "minutes_condensing": float(minutes.get("CONDENSING", 0)),
         "event_days": [r["d"] for r in event_days], "mean_rh_surf": mean_rhs,
-        "diagnostics": [dict(r) for r in await db().fetch(DIAG_SQL, *args)],
+        "diagnostics": [dict(r) for r in await db().fetch(
+            DIAG_SQL, body.device_id, body.from_.astimezone(TZ).date(), body.to.astimezone(TZ).date())],
         "weather_sources": {r["source"]: r["n"] for r in sources},
     }
