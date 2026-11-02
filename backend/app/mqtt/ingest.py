@@ -19,19 +19,21 @@ from app.db.pool import db
 from app.domain.forecast import Forecast, forecast
 from app.domain.psychrometrics import clamp_inputs, dew_point, rh_surface, t80
 from app.domain.risk_state import STALE_AFTER_S, RiskMachine
+from app.mqtt import validate
 from app.workers import notifier
 
 log = logging.getLogger(__name__)
 
 
 class Telemetry(BaseModel):
-    """§9.2 텔레메트리 페이로드 (하드웨어↔백엔드 계약)."""
+    """§9.2 텔레메트리 페이로드 (하드웨어↔백엔드 계약).
+    센서 읽기 실패는 null/NaN으로 올 수 있으므로 타입에서 막지 않고 validate에서 사유와 함께 거른다."""
     v: Literal[1]
     ts: int
     seq: int
-    t_air: float
-    rh: float
-    t_surf: list[float] = Field(min_length=1)
+    t_air: float | None
+    rh: float | None
+    t_surf: list[float | None] = Field(min_length=1)
     probe_ids: list[str]
     rssi: int | None = None
     fw: str | None = None
@@ -43,23 +45,37 @@ class Telemetry(BaseModel):
         return self
 
 
+class Rejected(Exception):
+    """계약은 지켰지만 값이 쓸 수 없는 메시지. dead-letter로 보내되 스택트레이스는 남기지 않는다."""
+
+
 @dataclass
 class Runtime:
     """기기별 메모리 상태.
     ponytail: 프로세스 재시작 시 초기화(상태 SAFE부터 다시 dwell). 파일럿에서 문제되면 events에서 복원."""
     machine: RiskMachine = field(default_factory=RiskMachine)
-    rhs: deque = field(default_factory=lambda: deque(maxlen=90))  # (epoch, 최악 프로브 RHs)
+    rhs: deque = field(default_factory=lambda: deque(maxlen=90))  # (epoch, 최악 프로브 RHs), ts 오름차순
     state: str = "SAFE"  # 외부에 보이는 상태 (STALE 포함)
     event_id: int | None = None
     event_started: datetime | None = None
     forecast: Forecast | None = None
     last_rx: float = 0.0  # 수신한 벽시계 시각. STALE은 '마지막 수신 후' 기준(백로그의 과거 ts와 무관)
+    last_ts: int = 0      # 판정에 반영한 마지막 기기 시각. 이 이하로 오는 메시지는 저장만 한다
+    unnotified_from: str | None = None  # 백로그로 상태가 바뀌어 아직 알리지 못했을 때, 사용자가 마지막으로 안 상태
 
 
 runtimes: dict[str, Runtime] = defaultdict(Runtime)
 
 
-async def set_state(device_id: str, rt: Runtime, new: str, at: datetime):
+async def _notify(coro) -> None:
+    """알림 실패가 수집을 멈추지 않게 한다 (notifier 자체도 예외를 던지지 않는 계약이지만 이중으로 막는다)."""
+    try:
+        await coro
+    except Exception:
+        log.exception("알림 처리 실패 — 수집은 계속")
+
+
+async def set_state(device_id: str, rt: Runtime, new: str, at: datetime, notify: bool = True):
     if new == rt.state:
         return
     old = rt.state
@@ -75,21 +91,33 @@ async def set_state(device_id: str, rt: Runtime, new: str, at: datetime):
             rt.event_started = at
     rt.state = new
     await broadcast(device_id, {"type": "state", "device_id": device_id, "state": new, "at": at.isoformat()})
-    await notifier.on_state(device_id, old, new, at)
+    if not notify:  # 백로그로 인한 전이 — 지금 알리면 '지난 일'이다. 다음 실시간 데이터에서 요약해 알린다
+        if rt.unnotified_from is None:
+            rt.unnotified_from = old
+        return
+    await _flush_notify(device_id, rt, at, old)
 
 
-async def handle_telemetry(home_id: str, device_id: str, msg: Telemetry):
+async def _flush_notify(device_id: str, rt: Runtime, at: datetime, old: str | None = None):
+    """사용자가 마지막으로 안 상태 → 현재 상태로 알린다. 백로그 동안 오르내리다 제자리면 알리지 않는다."""
+    frm = rt.unnotified_from or old
+    rt.unnotified_from = None
+    if frm is not None and frm != rt.state:
+        await _notify(notifier.on_state(device_id, frm, rt.state, at))
+
+
+async def store(home_id: str, device_id: str, msg: Telemetry, good: list[tuple[str, float]]) -> list[dict]:
+    """한 메시지의 프로브들을 한 트랜잭션으로 저장. 새로 저장된 프로브만 돌려준다(QoS1 재수신분은 제외)."""
     at = datetime.fromtimestamp(msg.ts, UTC)
-    async with db().acquire() as con:
+    probes = []
+    async with db().acquire() as con, con.transaction():
         await con.execute("INSERT INTO homes (id) VALUES ($1) ON CONFLICT DO NOTHING", home_id)
         cal = await con.fetchrow(
             """INSERT INTO devices (id, home_id, fw, last_seen, online) VALUES ($1, $2, $3, now(), true)
                ON CONFLICT (id) DO UPDATE SET fw = EXCLUDED.fw, last_seen = now(), online = true
                RETURNING calib_t_air, calib_rh, calib_t_surf""",
             device_id, home_id, msg.fw)
-
-        probes = []
-        for probe_id, ts_raw in zip(msg.probe_ids, msg.t_surf):
+        for probe_id, ts_raw in good:
             ta, rh, ts, sat = clamp_inputs(msg.t_air + cal["calib_t_air"], msg.rh + cal["calib_rh"],
                                            ts_raw + cal["calib_t_surf"])
             td, rhs = dew_point(ta, rh), rh_surface(ta, rh, ts)
@@ -97,21 +125,51 @@ async def handle_telemetry(home_id: str, device_id: str, msg: Telemetry):
                 """INSERT INTO readings (time, device_id, probe_id, t_air, rh, t_surf, t_dew, rh_surf, delta_t, rssi, saturated)
                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT DO NOTHING RETURNING 1""",
                 at, device_id, probe_id, ta, rh, ts, td, rhs, ts - td, msg.rssi, sat)
-            if not inserted:
-                return  # QoS1 중복 수신
-            probes.append(dict(time=at, probe_id=probe_id, t_air=ta, rh=rh, t_surf=ts, t_dew=td,
-                               t80=t80(ta, rh), rh_surf=rhs))
+            if inserted:
+                probes.append(dict(time=at, probe_id=probe_id, t_air=ta, rh=rh, t_surf=ts, t_dew=td,
+                                   t80=t80(ta, rh), rh_surf=rhs))
+    return probes
 
-    # 판정은 가장 위험한 프로브 기준
+
+async def handle_telemetry(home_id: str, device_id: str, msg: Telemetry, now: float | None = None):
+    now = time.time() if now is None else now
+
+    # 1) 값 검증 — 실내 온습도·시각이 틀리면 메시지 전체, 벽면 프로브는 고장난 것만 뺀다
+    if why := validate.check_ts(msg.ts, now) or validate.check_air(msg.t_air, msg.rh):
+        raise Rejected(why)
+    good = [(p, t) for p, t in zip(msg.probe_ids, msg.t_surf) if validate.surface_ok(t)]
+    if len(good) < len(msg.t_surf):
+        log.warning("%s 고장 프로브 제외: %s", device_id,
+                    [(p, t) for p, t in zip(msg.probe_ids, msg.t_surf) if not validate.surface_ok(t)])
+    if not good:
+        raise Rejected(f"유효한 벽면 프로브 없음: {msg.t_surf}")
+
+    # 2) 저장 (트랜잭션)
+    probes = await store(home_id, device_id, msg, good)
     rt = runtimes[device_id]
     rt.last_rx = time.time()
+    if not probes:
+        return  # 전부 QoS1 재수신
+
+    # 3) 판정 여부 결정 — 순서가 뒤집힌 과거 데이터는 저장만, 오래된 백로그는 알림 없이 판정만
+    kind = validate.classify(msg.ts, rt.last_ts, now)
+    if kind == "out_of_order":
+        log.info("%s 순서 역전 데이터(ts=%s ≤ %s) — 저장만", device_id, msg.ts, rt.last_ts)
+        return
+    rt.last_ts = msg.ts
+    live = kind == "live"
+    at = probes[0]["time"]
+
+    # 4) 판정은 가장 위험한 프로브 기준
     worst = max(p["rh_surf"] for p in probes)
     rt.rhs.append((msg.ts, worst))
     median5 = statistics.median(y for t, y in rt.rhs if msg.ts - t < 300)  # §5.5 5분 중앙값
     state = rt.machine.update(median5, msg.ts).name
     rt.forecast = forecast(list(rt.rhs))
 
-    await set_state(device_id, rt, state, at)
+    await set_state(device_id, rt, state, at, notify=live)
+    if live and rt.unnotified_from is not None:  # 이번 메시지에서 전이는 없었지만 백로그 중 바뀐 상태가 남아 있음
+        await _flush_notify(device_id, rt, at)
     if rt.event_id:
         await db().execute(
             """UPDATE events SET peak_rh_surf = GREATEST(peak_rh_surf, $2), min_delta_t = LEAST(min_delta_t, $3)
@@ -122,8 +180,8 @@ async def handle_telemetry(home_id: str, device_id: str, msg: Telemetry):
         "forecast": asdict(rt.forecast) if rt.forecast else None,
         "probes": [{**p, "time": at.isoformat()} for p in probes],
     })
-    if rt.forecast:
-        await notifier.on_forecast(device_id, rt.state, rt.forecast)
+    if rt.forecast and live:
+        await _notify(notifier.on_forecast(device_id, rt.state, rt.forecast))
 
 
 async def handle(m: aiomqtt.Message):
@@ -137,7 +195,7 @@ async def handle(m: aiomqtt.Message):
             if not online and device_id in runtimes:  # LWT → 즉시 STALE (§8.2)
                 await set_state(device_id, runtimes[device_id], "STALE", datetime.now(UTC))
     except Exception as e:  # 검증 실패든 뭐든 dead-letter로 보내고 계속
-        if not isinstance(e, ValidationError):
+        if not isinstance(e, (ValidationError, Rejected)):
             log.exception("ingest 실패 %s", m.topic.value)
         await db().execute("INSERT INTO dead_letters (topic, payload, error) VALUES ($1, $2, $3)",
                            m.topic.value, m.payload.decode(errors="replace"), str(e)[:2000])
