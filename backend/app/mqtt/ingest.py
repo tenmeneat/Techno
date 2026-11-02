@@ -62,6 +62,7 @@ runtimes: dict[str, Runtime] = defaultdict(Runtime)
 async def set_state(device_id: str, rt: Runtime, new: str, at: datetime):
     if new == rt.state:
         return
+    old = rt.state
     async with db().acquire() as con:
         if rt.event_id:  # STALE(벽시계 시작) 뒤 과거 ts 백로그가 와도 종료가 시작보다 앞서지 않게
             at = max(at, rt.event_started)
@@ -74,7 +75,7 @@ async def set_state(device_id: str, rt: Runtime, new: str, at: datetime):
             rt.event_started = at
     rt.state = new
     await broadcast(device_id, {"type": "state", "device_id": device_id, "state": new, "at": at.isoformat()})
-    await notifier.on_state(device_id, new)
+    await notifier.on_state(device_id, old, new, at)
 
 
 async def handle_telemetry(home_id: str, device_id: str, msg: Telemetry):
