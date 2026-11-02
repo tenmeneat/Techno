@@ -13,6 +13,7 @@ MQTT_PASS = env("MQTT_PASS") or None
 MQTT_TLS = env("MQTT_TLS", "false").lower() == "true"  # HiveMQ Cloud = true, 8883
 
 API_TOKEN = env("API_TOKEN", "")  # 비어 있으면 인증 생략 (로컬 개발)
+PUBLIC = env("PUBLIC", "false").lower() == "true"  # Tailscale Funnel 등으로 외부 공개 중이면 true — 빈 토큰이면 기동 거부
 CORS_ORIGINS = env("CORS_ORIGINS", "http://localhost:3000").split(",")
 STATIC_DIR = env("STATIC_DIR", "static")  # 프런트 빌드 산출물. 없으면 API만 뜬다
 
