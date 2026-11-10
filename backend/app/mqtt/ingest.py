@@ -61,6 +61,7 @@ class Runtime:
     last_rx: float = 0.0  # 수신한 벽시계 시각. STALE은 '마지막 수신 후' 기준(백로그의 과거 ts와 무관)
     last_ts: int = 0      # 판정에 반영한 마지막 기기 시각. 이 이하로 오는 메시지는 저장만 한다
     unnotified_from: str | None = None  # 백로그로 상태가 바뀌어 아직 알리지 못했을 때, 사용자가 마지막으로 안 상태
+    pre_stale: str = "SAFE"  # STALE 직전 상태. 통신 끊김은 위험도를 바꾸지 않으므로 알림 비교는 이 값 기준
 
 
 runtimes: dict[str, Runtime] = defaultdict(Runtime)
@@ -77,7 +78,10 @@ async def _notify(coro) -> None:
 async def set_state(device_id: str, rt: Runtime, new: str, at: datetime, notify: bool = True):
     if new == rt.state:
         return
-    old = rt.state
+    # 사용자가 알고 있는 위험 상태. STALE은 통신 문제일 뿐이라, STALE→ALERT는 'ALERT를 이미 안다'로 본다
+    known = rt.pre_stale if rt.state == "STALE" else rt.state
+    if new == "STALE":
+        rt.pre_stale = known
     async with db().acquire() as con:
         if new == "STALE":  # 화면의 '연결됨' 표시와 상태가 어긋나지 않게
             await con.execute("UPDATE devices SET online = false WHERE id = $1", device_id)
@@ -94,9 +98,9 @@ async def set_state(device_id: str, rt: Runtime, new: str, at: datetime, notify:
     await broadcast(device_id, {"type": "state", "device_id": device_id, "state": new, "at": at.isoformat()})
     if not notify:  # 백로그로 인한 전이 — 지금 알리면 '지난 일'이다. 다음 실시간 데이터에서 요약해 알린다
         if rt.unnotified_from is None:
-            rt.unnotified_from = old
+            rt.unnotified_from = known
         return
-    await _flush_notify(device_id, rt, at, old)
+    await _flush_notify(device_id, rt, at, known)
 
 
 async def _flush_notify(device_id: str, rt: Runtime, at: datetime, old: str | None = None):

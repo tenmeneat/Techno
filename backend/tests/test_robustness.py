@@ -98,6 +98,22 @@ def test_stale_marks_device_offline():
     assert rt.state == "STALE"
 
 
+def test_wifi_blip_does_not_resend_alert():
+    """ALERT 중 와이파이가 잠깐 끊겨 STALE이 됐다가 돌아와도 ALERT 알림이 다시 가지 않는다."""
+    from tests.test_ingest import NOW, run, series
+    env = Env()
+    run(env, series(NOW, 15, rh=75.0), now=lambda p: p["ts"])                # 결로 진입
+    asyncio.run(ingest.set_state("dev1", env.rt, "STALE", datetime.now(UTC)))  # 끊김(LWT)
+    run(env, series(NOW + 900, 5, rh=75.0), now=lambda p: p["ts"])          # 복귀, 여전히 결로
+    assert env.rt.state == "CONDENSING"
+    assert env.states == [("SAFE", "CONDENSING"), ("CONDENSING", "STALE")]  # 결로 알림은 한 번뿐
+    run(env, series(NOW + 1200, 15, rh=50.0), now=lambda p: p["ts"])        # 환기 후 회복
+    # 5분 중앙값이 내려오며 CONDENSING→ALERT→SAFE로 단계적으로 내려간다(하강 알림 걸러내기는 notifier 몫)
+    assert env.rt.state == "SAFE"
+    assert [n for _, n in env.states].count("CONDENSING") == 1  # 끊김 전후로 결로 진입 알림은 한 번
+    assert ("STALE", "CONDENSING") not in env.states
+
+
 def test_public_without_token_refuses_to_start():
     saved = (config.PUBLIC, config.API_TOKEN)
     try:
