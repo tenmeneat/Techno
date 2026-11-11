@@ -3,7 +3,7 @@ import type { StateName } from "./api";
 // 상태색은 status 팔레트 고정값(good/warning/serious/critical). 색만으로 전달하지 않도록 항상 라벨과 함께 쓴다
 export const STATE: Record<StateName, { label: string; color: string; soft: string; text: string; advice: string }> = {
   SAFE: {
-    label: "안전", color: "#0ca30c", soft: "bg-green-50 ring-green-600/20", text: "text-green-800",
+    label: "안전", color: "#318362", soft: "bg-green-50 ring-green-600/20", text: "text-green-800",
     advice: "곰팡이가 자라기 어려운 상태입니다.",
   },
   WATCH: {

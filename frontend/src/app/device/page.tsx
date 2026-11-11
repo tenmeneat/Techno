@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useMemo, useState } from "react";
 import { RiskChart } from "@/components/RiskChart";
+import { ExperienceChoice, useExperience } from "@/components/Experience";
 import { StateBadge } from "@/components/StateBadge";
 import { api, type Current, type Event, type ProbeReading, RANGES, type RangeKey, rangeParams } from "@/lib/api";
 import { fmt, hhmm, STATE } from "@/lib/format";
@@ -16,19 +17,21 @@ export default function DevicePage() {
 }
 
 function DeviceView() {
+  const { mode, ready, href } = useExperience();
   const id = useSearchParams().get("id") ?? "";
   const [range, setRange] = useState<RangeKey>("24h");
-  useLive(id);
+  const enabled = ready && mode === "live" && !!id;
+  useLive(id, enabled);
 
   // 기간 경계는 range가 바뀔 때만 다시 잡는다
   const { from, to, qs } = useMemo(() => rangeParams(range), [range]);
 
-  const cur = useQuery({ queryKey: ["current", id], queryFn: () => api<Current>(`/devices/${id}/current`) });
-  const series = useQuery({
+  const cur = useQuery({ enabled, queryKey: ["current", id], queryFn: () => api<Current>(`/devices/${id}/current`) });
+  const series = useQuery({ enabled,
     queryKey: ["series", id, range],
     queryFn: () => api<ProbeReading[]>(`/devices/${id}/series?${qs}&bucket=${RANGES[range].bucket}`),
   });
-  const events = useQuery({ queryKey: ["events", id, range], queryFn: () => api<Event[]>(`/devices/${id}/events?${qs}`) });
+  const events = useQuery({ enabled, queryKey: ["events", id, range], queryFn: () => api<Event[]>(`/devices/${id}/events?${qs}`) });
 
   const worst = cur.data?.probes.reduce((a, b) => (b.rh_surf > a.rh_surf ? b : a), cur.data.probes[0]);
   const list = (events.data ?? []).filter((e) => e.state !== "STALE").slice().reverse();
@@ -37,7 +40,7 @@ function DeviceView() {
     <div className="grid gap-6">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <Link href="/" className="text-sm text-slate-500 hover:text-slate-800">← 실시간 현황</Link>
+          <Link href={href("/")} className="text-sm text-slate-500 hover:text-slate-800">← 실시간 현황</Link>
           <h1 className="mt-1 text-2xl font-bold tracking-tight md:text-3xl">{id}</h1>
         </div>
         {cur.data && <StateBadge state={cur.data.state} large />}

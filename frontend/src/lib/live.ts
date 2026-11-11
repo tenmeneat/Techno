@@ -4,10 +4,11 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { type Current, type LiveMessage, type ProbeReading, wsUrl } from "./api";
 
-export function useLive(deviceId?: string) {
+export function useLive(deviceId?: string, enabled = true) {
   const qc = useQueryClient();
 
   useEffect(() => {
+    if (!enabled) return;
     let ws: WebSocket;
     let retry = 0;
     let timer: ReturnType<typeof setTimeout>;
@@ -20,7 +21,9 @@ export function useLive(deviceId?: string) {
         retry = 0;
       };
       ws.onmessage = (e) => {
-        const msg: LiveMessage = JSON.parse(e.data);
+        let msg: LiveMessage;
+        try { msg = JSON.parse(e.data); } catch { return; }
+        if (!msg || (msg.type !== "reading" && msg.type !== "state")) return;
         if (msg.type === "reading") {
           const { type: _, ...current } = msg;
           qc.setQueryData<Current>(["current", msg.device_id], current);
@@ -44,5 +47,5 @@ export function useLive(deviceId?: string) {
       clearTimeout(timer);
       ws.close();
     };
-  }, [deviceId, qc]);
+  }, [deviceId, qc, enabled]);
 }
