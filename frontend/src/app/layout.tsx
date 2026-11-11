@@ -14,13 +14,13 @@ export const viewport: Viewport = { width: "device-width", initialScale: 1, them
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="ko">
-      <body className="min-h-screen bg-slate-50 text-slate-900 antialiased">
+      <body className="min-h-screen text-slate-900 antialiased">
         <Providers>
           <div className="flex min-h-screen">
             <Sidebar />
             <div className="min-w-0 flex-1 pb-20 md:pb-0">
               <MobileHeader />
-              <main className="mx-auto w-full max-w-[1600px] p-4 md:p-8">{children}</main>
+              <main id="main-content" className="app-main">{children}</main>
             </div>
           </div>
           <BottomNav />

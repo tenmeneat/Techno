@@ -3,15 +3,15 @@
 // Ts 선이 어느 띠에 들어와 있는지가 곧 상태다.
 import { Area, CartesianGrid, ComposedChart, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { Event, ProbeReading } from "@/lib/api";
-import { hhmm, STATE } from "@/lib/format";
+import { clock, hhmm, STATE } from "@/lib/format";
 
 type Row = { t: number; td: number; t80: number; [probe: string]: number };
 const PROBE_COLORS = ["#2a78d6", "#4a3aa7"]; // 벽면 프로브 (상태색과 겹치지 않는 계열)
 const CRIT = STATE.CONDENSING.color;
 const SERIOUS = STATE.ALERT.color;
 
-export function RiskChart({ series, events, from, to, height = 300 }: {
-  series: ProbeReading[]; events: Event[]; from: number; to: number; height?: number;
+export function RiskChart({ series, events, from, to, height = 300, compact = false }: {
+  series: ProbeReading[]; events: Event[]; from: number; to: number; height?: number; compact?: boolean;
 }) {
   const rows = new Map<number, Row>();
   const probes = new Set<string>();
@@ -33,35 +33,37 @@ export function RiskChart({ series, events, from, to, height = 300 }: {
   return (
     <div>
       <ResponsiveContainer width="100%" height={height}>
-        <ComposedChart data={data} margin={{ top: 8, right: 12, left: -12, bottom: 0 }}>
+        <ComposedChart data={data} margin={{ top: 6, right: 14, left: compact ? 0 : -12, bottom: 0 }}>
           <CartesianGrid vertical={false} stroke="#e2e8f0" />
-          <XAxis dataKey="t" type="number" scale="time" domain={[from, to]} tickFormatter={hhmm} minTickGap={60}
-            fontSize={11} stroke="#94a3b8" tickLine={false} axisLine={false} />
-          <YAxis unit="°" domain={[yMin, "auto"]} fontSize={11} stroke="#94a3b8" allowDecimals={false} tickLine={false} axisLine={false} />
-          <Tooltip labelFormatter={(t) => hhmm(t as number)}
+          <XAxis dataKey="t" type="number" scale="time" domain={[from, to]} tickFormatter={to - from <= 48 * 3600_000 ? clock : hhmm} minTickGap={50}
+            height={compact ? 21 : undefined} fontSize={11} stroke={compact ? "#52647d" : "#94a3b8"} tickLine={false} axisLine={false} />
+          <YAxis unit="°" domain={[yMin, "auto"]} width={compact ? 32 : undefined} tickCount={compact ? 3 : undefined}
+            fontSize={11} stroke={compact ? "#52647d" : "#94a3b8"} allowDecimals={false} tickLine={false} axisLine={false} />
+          {!compact && <Tooltip labelFormatter={(t) => hhmm(t as number)}
             formatter={(v) => (Array.isArray(v) ? null : `${Number(v).toFixed(1)}°C`)}
-            contentStyle={{ borderRadius: 10, border: "1px solid #e2e8f0", fontSize: 12 }} />
-          <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} iconType="plainline" />
+            contentStyle={{ borderRadius: 10, border: "1px solid #e2e8f0", fontSize: 12 }} />}
+          {!compact && <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} iconType="plainline" />}
           <Area dataKey={(r: Row) => [yMin, r.td]} name="결로 구간" fill={CRIT} fillOpacity={0.07} stroke="none" isAnimationActive={false} legendType="none" />
           <Area dataKey={(r: Row) => [r.td, r.t80]} name="곰팡이 구간" fill={SERIOUS} fillOpacity={0.2} stroke="none" isAnimationActive={false} legendType="none" />
-          <Line dataKey="t80" name="T80 곰팡이 임계" stroke={SERIOUS} strokeWidth={1.5} dot={false} isAnimationActive={false} />
-          <Line dataKey="td" name="Td 이슬점" stroke={CRIT} strokeWidth={1.5} strokeDasharray="5 3" dot={false} isAnimationActive={false} />
+          <Line dataKey="t80" name="곰팡이 위험 기준" stroke={SERIOUS} strokeWidth={1.5} dot={false} isAnimationActive={false} />
+          <Line dataKey="td" name="이슬점" stroke={CRIT} strokeWidth={1.5} strokeDasharray="5 3" dot={false} isAnimationActive={false} />
           {[...probes].map((p, i) => (
-            <Line key={p} dataKey={p} name={`벽면 ${i + 1}`} stroke={PROBE_COLORS[i % 2]} strokeWidth={2} dot={false} isAnimationActive={false} />
+            <Line key={p} dataKey={p} name={probes.size === 1 ? "벽면 온도" : `벽면 ${i + 1}`} stroke={PROBE_COLORS[i % 2]} strokeWidth={2} dot={false} isAnimationActive={false} />
           ))}
         </ComposedChart>
       </ResponsiveContainer>
       {/* 상태 이벤트는 선 위가 아니라 x축 아래 띠로 */}
-      <div className="relative ml-[48px] mr-3 mt-1 h-2.5 overflow-hidden rounded-full bg-slate-100">
+      {!compact && <div className="relative ml-[48px] mr-3 mt-1 h-2.5 overflow-hidden rounded-full bg-slate-100">
         {events.map((e) => {
           const s = Math.max(from, new Date(e.started_at).getTime());
           const end = Math.min(to, e.ended_at ? new Date(e.ended_at).getTime() : to);
+          if (end <= s || to <= from) return null;
           return (
             <div key={e.id} title={`${STATE[e.state].label} ${hhmm(s)}`} className="absolute h-full"
               style={{ left: `${((s - from) / (to - from)) * 100}%`, width: `${((end - s) / (to - from)) * 100}%`, background: STATE[e.state].color }} />
           );
         })}
-      </div>
+      </div>}
     </div>
   );
 }
