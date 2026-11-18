@@ -10,9 +10,10 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api.v1 import devices, events, push, readings, reports, ws
 from app.core import config
+from app.db.migrate import migrate_notifications
 from app.db.pool import close_pool, db, open_pool
 from app.mqtt import ingest
-from app.workers import diagnostics, weather_sync
+from app.workers import diagnostics, notifier, weather_sync
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger(__name__)
@@ -44,21 +45,29 @@ def check_public_config():
 async def lifespan(_: FastAPI):
     check_public_config()
     await open_pool()
-    # 재시작 전 상태 복원: 최근까지 데이터가 오던 기기는 열린 이벤트를 이어받고,
-    # 아니면 이벤트를 '마지막 측정 시각'에 닫는다(서버가 꺼진 시간을 위험 시간에 넣지 않음)
+    tasks = []
     try:
-        await ingest.restore()
-    except Exception:  # 복원 실패로 서버 전체가 안 뜨는 것보다는, 상태를 비운 채 시작하는 게 낫다
-        log.exception("상태 복원 실패 — 빈 상태로 시작")
-        ingest.runtimes.clear()
-        await db().execute("UPDATE events SET ended_at = now() WHERE ended_at IS NULL")
-    tasks = [asyncio.create_task(supervise(n, f)) for n, f in
-             (("ingest", ingest.run), ("stale", ingest.watch_stale),
-              ("weather", weather_sync.run), ("diagnostics", diagnostics.run))]
-    yield
-    for t in tasks:
-        t.cancel()
-    await close_pool()
+        await migrate_notifications()
+        await notifier.reconcile_history()
+        # 재시작 전 상태 복원: 최근까지 데이터가 오던 기기는 열린 이벤트를 이어받고,
+        # 아니면 이벤트를 '마지막 측정 시각'에 닫는다(서버가 꺼진 시간을 위험 시간에 넣지 않음)
+        try:
+            await ingest.restore()
+        except Exception:  # 복원 실패로 서버 전체가 안 뜨는 것보다는, 상태를 비운 채 시작하는 게 낫다
+            log.exception("상태 복원 실패 — 빈 상태로 시작")
+            ingest.runtimes.clear()
+            await db().execute("UPDATE events SET ended_at = now() WHERE ended_at IS NULL")
+        tasks = [asyncio.create_task(supervise(n, f)) for n, f in
+                 (("ingest", ingest.run), ("stale", ingest.watch_stale),
+                  ("weather", weather_sync.run), ("diagnostics", diagnostics.run),
+                  ("notify-history", notifier.maintain_history))]
+        yield
+    finally:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        await ingest.stop_notifications()
+        await close_pool()
 
 
 async def require_token(authorization: str = Header("")):

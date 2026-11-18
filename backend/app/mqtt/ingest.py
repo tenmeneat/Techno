@@ -23,6 +23,42 @@ from app.mqtt import validate
 from app.workers import notifier
 
 log = logging.getLogger(__name__)
+MAX_NOTIFICATION_TASKS = 128
+_notification_tasks: set[asyncio.Task] = set()
+_notification_keys: dict[tuple[str, str], asyncio.Task] = {}
+
+
+def start_notification(coro, *, key=None) -> None:
+    if (key is not None and key in _notification_keys) or len(_notification_tasks) >= MAX_NOTIFICATION_TASKS:
+        # A dropped coroutine must be closed, including when the server is overloaded.
+        coro.close()
+        if len(_notification_tasks) >= MAX_NOTIFICATION_TASKS:
+            log.warning("알림 작업 한도 초과; 알림 생략")
+        return
+    try:
+        task = asyncio.create_task(coro)
+    except BaseException:
+        coro.close()
+        raise
+    _notification_tasks.add(task)
+    if key is not None:
+        _notification_keys[key] = task
+
+    def finished(done):
+        _notification_tasks.discard(done)
+        if key is not None and _notification_keys.get(key) is done:
+            _notification_keys.pop(key, None)
+        if not done.cancelled() and done.exception() is not None:
+            log.error("백그라운드 알림 작업 실패")
+
+    task.add_done_callback(finished)
+
+
+async def stop_notifications() -> None:
+    tasks = list(_notification_tasks)
+    for task in tasks:
+        task.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
 
 
 class Telemetry(BaseModel):
@@ -67,14 +103,6 @@ class Runtime:
 runtimes: dict[str, Runtime] = defaultdict(Runtime)
 
 
-async def _notify(coro) -> None:
-    """알림 실패가 수집을 멈추지 않게 한다 (notifier 자체도 예외를 던지지 않는 계약이지만 이중으로 막는다)."""
-    try:
-        await coro
-    except Exception:
-        log.exception("알림 처리 실패 — 수집은 계속")
-
-
 async def set_state(device_id: str, rt: Runtime, new: str, at: datetime, notify: bool = True):
     if new == rt.state:
         return
@@ -108,7 +136,7 @@ async def _flush_notify(device_id: str, rt: Runtime, at: datetime, old: str | No
     frm = rt.unnotified_from or old
     rt.unnotified_from = None
     if frm is not None and frm != rt.state:
-        await _notify(notifier.on_state(device_id, frm, rt.state, at))
+        start_notification(notifier.on_state(device_id, frm, rt.state, at))
 
 
 async def store(home_id: str, device_id: str, msg: Telemetry, good: list[tuple[str, float]]) -> list[dict]:
@@ -186,7 +214,7 @@ async def handle_telemetry(home_id: str, device_id: str, msg: Telemetry, now: fl
         "probes": [{**p, "time": at.isoformat()} for p in probes],
     })
     if rt.forecast and live:
-        await _notify(notifier.on_forecast(device_id, rt.state, rt.forecast))
+        start_notification(notifier.on_forecast(device_id, rt.state, rt.forecast), key=("forecast", device_id))
 
 
 async def handle(m: aiomqtt.Message):
