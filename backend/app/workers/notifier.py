@@ -46,15 +46,23 @@ async def send(title: str, body: str, url: str, bypass_quiet: bool = False):
                 log.warning("push 실패: %s", e)
 
 
-async def on_state(device_id: str, state: str):
-    """상태 진입 시 1회. events 행이 한 번만 생기므로 중복 발송 없음."""
-    if state in STATE_PUSH:
-        title, body = STATE_PUSH[state]
-        await send(title, body, f"/device/?id={device_id}", bypass_quiet=state == "CONDENSING")
+async def on_state(device_id: str, old: str, new: str, at: datetime) -> None:
+    """상태 전이 시 1회 호출된다 (ingest.set_state).
+
+    계약 (A·B 공통):
+    - old/new: SAFE / WATCH / ALERT / CONDENSING / STALE, at: 전이 시각(UTC).
+    - ingest는 '실시간 데이터'일 때만 이 함수를 부른다. 지연된 백로그로 인한 전이는 부르지 않는다.
+    - 이 함수는 예외를 밖으로 던지지 않아야 한다(B 구현). 상승 여부·재발송 제한·무음 시간 판단은 전부 여기서 한다.
+    TODO(B): 현재는 기존 동작 그대로 — new 기준으로만 발송.
+    """
+    if new in STATE_PUSH:
+        title, body = STATE_PUSH[new]
+        await send(title, body, f"/device/?id={device_id}", bypass_quiet=new == "CONDENSING")
 
 
-async def on_forecast(device_id: str, state: str, fc: Forecast):
-    """§6.5: SAFE/WATCH일 때만, 24시간 내 최대 2회, 최소 간격 3시간."""
+async def on_forecast(device_id: str, state: str, fc: Forecast) -> None:
+    """§6.5: SAFE/WATCH일 때만, 24시간 내 최대 2회, 최소 간격 3시간.
+    on_state와 같은 계약: 실시간 데이터일 때만 호출되며, 예외를 밖으로 던지지 않아야 한다(B 구현)."""
     if state not in ("SAFE", "WATCH"):
         return
     now = time.time()
