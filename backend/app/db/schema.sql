@@ -104,3 +104,39 @@ CREATE TABLE push_subscriptions (
     quiet_start smallint NOT NULL DEFAULT 23,  -- §9.7 야간 무음 (CONDENSING 예외)
     quiet_end   smallint NOT NULL DEFAULT 7
 );
+
+
+-- 알림 발송 이력 관리
+-- 상태 및 예측 알림의 발송 결과를 기록한다.
+CREATE TABLE IF NOT EXISTS notification_history (
+    id bigserial PRIMARY KEY,
+
+    device_id text NOT NULL REFERENCES devices(id),
+
+    endpoint text NOT NULL,
+
+    notification_type text NOT NULL
+        CHECK (notification_type IN ('STATE', 'FORECAST')),
+
+    status text NOT NULL DEFAULT 'PENDING'
+        CHECK (status IN ('PENDING', 'SENT', 'FAILED')),
+
+    created_at timestamptz NOT NULL DEFAULT now(),
+
+    sent_at timestamptz,
+
+    error text
+);
+
+-- 기기별 최근 알림 조회를 빠르게 처리
+CREATE INDEX IF NOT EXISTS idx_notification_history_device
+    ON notification_history (device_id, created_at DESC);
+
+-- 알림 종류별 최근 발송 기록 검색
+CREATE INDEX IF NOT EXISTS idx_notification_history_type_status
+    ON notification_history (
+        device_id,
+        notification_type,
+        status,
+        created_at DESC
+    );
