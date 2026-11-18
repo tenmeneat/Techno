@@ -1,254 +1,90 @@
 "use client";
-// 리포트 (§10.6). 일반 사용자가 읽는 문서: 결론 → 숫자 → 그림 → 행동 안내 → (접힌) 측정 방법.
-// 인쇄용 페이지 → 브라우저 "PDF로 저장". 표현 수위는 §4.4: '하자', '책임' 같은 단어는 쓰지 않는다.
-import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
-import { Bar, BarChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { api, type Device, post, type Report } from "@/lib/api";
-import { F_RSI_MIN, fmt, fRsiMedian7, STATE } from "@/lib/format";
 
-const isoDay = (d: Date) => d.toISOString().slice(0, 10);
-const kDate = (s: string | Date) => new Date(s).toLocaleDateString("ko-KR", { month: "long", day: "numeric" });
+import { useQuery } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
+import { Icon } from "@/components/Icon";
+import { ExperienceChoice, useExperience } from "@/components/Experience";
+import { api, type Device, type ProbeReading } from "@/lib/api";
+import { fmt } from "@/lib/format";
+import { downloadReportPdf } from "@/lib/report-pdf";
+import { hourlyStats, koreaDay, periodBounds, periodError, quickPeriod, reportRows, sampleReport, type ReportPeriod } from "@/lib/report-data";
+
+const initialPeriod = () => quickPeriod(7);
+const dateLabel = (value: string, daily: boolean) => new Date(value.length === 10 ? `${value}T00:00:00+09:00` : value).toLocaleString("ko-KR", { timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit", ...(!daily && { hour: "2-digit", minute: "2-digit", hour12: false }) });
 
 export default function ReportPage() {
-  const devices = useQuery({ queryKey: ["devices"], queryFn: () => api<Device[]>("/devices") }).data ?? [];
+  const { mode, ready, setMode } = useExperience();
+  const demo = mode === "demo";
   const [picked, setPicked] = useState("");
-  const [from, setFrom] = useState(isoDay(new Date(Date.now() - 21 * 86400_000)));
-  const [to, setTo] = useState(isoDay(new Date()));
-  const deviceId = picked || devices[0]?.id;
-
-  const report = useQuery({
-    queryKey: ["report", deviceId, from, to],
-    enabled: !!deviceId,
-    queryFn: () => post<Report>("/reports", {
-      device_id: deviceId,
-      from: new Date(`${from}T00:00:00+09:00`).toISOString(),
-      to: new Date(new Date(`${to}T00:00:00+09:00`).getTime() + 86400_000).toISOString(),
-    }),
+  const [draft, setDraft] = useState<ReportPeriod>(initialPeriod);
+  const [period, setPeriod] = useState<ReportPeriod>(initialPeriod);
+  const [daily, setDaily] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [pdfError, setPdfError] = useState("");
+  const devices = useQuery({ queryKey: ["devices"], queryFn: () => api<Device[]>("/devices"), enabled: ready && mode === "live", retry: 1 });
+  const device = devices.data?.find(d => d.id === picked) ?? devices.data?.[0];
+  const readings = useQuery({
+    queryKey: ["report-series", device?.id, period.from, period.to],
+    enabled: ready && mode === "live" && !!device && !periodError(period), retry: 1,
+    queryFn: () => {
+      const { from, to } = periodBounds(period);
+      const params = new URLSearchParams({ from: new Date(from).toISOString(), to: new Date(to).toISOString(), bucket: "1h" });
+      return api<ProbeReading[]>(`/devices/${encodeURIComponent(device!.id)}/series?${params}`);
+    },
   });
+  const sample = useMemo(() => sampleReport(period), [period]);
+  const series = demo ? sample : readings.data;
+  const rows = useMemo(() => reportRows(series ?? [], period, daily), [series, period, daily]);
+  const hasData = rows.some(r => r.count > 0);
+  const invalid = periodError(draft);
+  const dirty = draft.from !== period.from || draft.to !== period.to;
+  const busy = mode === "live" && (devices.isPending || (!!device && readings.isPending));
+  const failed = mode === "live" && (devices.isError || (!!device && readings.isError));
+  const days = (periodBounds(period).to - periodBounds(period).from) / 86400_000;
+  const title = demo ? "나의 방 · 샘플" : device?.label || device?.id || "측정 기기";
+  const summary = [
+    { name: "실내 온도", icon: "temp", stats: hourlyStats((series ?? []).map(p => p.t_air)), unit: "°C", className: "air" },
+    { name: "실내 습도", icon: "drop", stats: hourlyStats((series ?? []).map(p => p.rh)), unit: "%", className: "humidity" },
+    { name: "벽면 온도", icon: "wall", stats: hourlyStats((series ?? []).map(p => p.t_surf)), unit: "°C", className: "wall" },
+  ];
 
-  return (
-    <div className="grid gap-6">
-      <header className="flex flex-wrap items-end justify-between gap-4 print:hidden">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight md:text-3xl">리포트</h1>
-          <p className="mt-1 text-sm text-slate-500">기간을 고르면 바로 만들어집니다. 집주인·관리인과 이야기할 때 PDF로 저장해 보여주세요.</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 rounded-xl bg-white p-2 shadow-sm ring-1 ring-slate-200">
-          <select className="rounded-lg border-0 bg-slate-50 px-3 py-2 text-sm" value={deviceId ?? ""} onChange={(e) => setPicked(e.target.value)} aria-label="방">
-            {devices.map((d) => <option key={d.id} value={d.id}>{d.label ?? d.id}</option>)}
-          </select>
-          <input type="date" className="rounded-lg bg-slate-50 px-3 py-2 text-sm" value={from} max={to} onChange={(e) => setFrom(e.target.value)} aria-label="시작일" />
-          <span className="text-slate-400">~</span>
-          <input type="date" className="rounded-lg bg-slate-50 px-3 py-2 text-sm" value={to} min={from} onChange={(e) => setTo(e.target.value)} aria-label="종료일" />
-          <button className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
-            disabled={!report.data} onClick={() => window.print()}>PDF 저장</button>
-        </div>
-      </header>
+  if (!ready) return <div className="loading-card" role="status">화면을 준비하고 있어요…</div>;
+  if (mode === "welcome") return <ExperienceChoice />;
 
-      {report.isError && <p className="rounded-2xl bg-red-50 p-6 text-sm text-red-800 ring-1 ring-red-200">리포트를 만들지 못했습니다. 서버 연결을 확인하세요.</p>}
-      {report.isLoading && <div className="h-96 animate-pulse rounded-2xl bg-white" />}
-      {report.data && <ReportView r={report.data} />}
-    </div>
-  );
-}
-
-function ReportView({ r }: { r: Report }) {
-  useEffect(() => { // PDF에는 접힌 '자세히'도 펼쳐서 들어가게
-    const open = () => document.querySelectorAll("details").forEach((d) => (d.open = true));
-    addEventListener("beforeprint", open);
-    return () => removeEventListener("beforeprint", open);
-  }, []);
-  const days = Math.max(1, Math.round((new Date(r.to).getTime() - new Date(r.from).getTime()) / 86400_000));
-  // 일간 집계(어제까지)와 이벤트 기록(오늘 포함) 중 큰 쪽 — 위 숫자와 아래 그래프가 어긋나지 않게
-  const riskH = Math.max(r.diagnostics.reduce((s, d) => s + d.minutes_alert, 0), r.minutes_alert + r.minutes_condensing) / 60;
-  const wetH = r.minutes_condensing / 60;
-  const riskDays = r.diagnostics.filter((d) => d.minutes_alert > 0).length || r.event_days.length;
-  const f = fRsiMedian7(r.diagnostics);
-  const insulationWeak = f != null && f < F_RSI_MIN;
-  const level = wetH > 0 || riskDays > days / 3 ? "CONDENSING" : riskH > 0 ? "ALERT" : "SAFE";
-  const headline =
-    level === "SAFE" ? "이 기간 동안 벽면은 대체로 곰팡이가 자라기 어려운 상태였습니다."
-    : level === "ALERT" ? `${days}일 중 ${riskDays}일, 벽면이 곰팡이가 자라기 쉬운 습도까지 올라갔습니다.`
-    : `${days}일 중 ${riskDays}일 벽면이 곰팡이가 자라기 쉬운 상태였고, ${wetH >= 1 ? `${wetH.toFixed(0)}시간 동안` : "한때"} 벽에 물이 맺히는 조건이었습니다.`;
-
-  return (
-    <article className="mx-auto grid w-full max-w-5xl gap-6 print:max-w-none print:gap-4">
-      {/* 표지 + 결론 */}
-      <section className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
-        <div className="bg-slate-900 px-6 py-5 text-white md:px-8">
-          <div className="text-xs font-medium tracking-wide text-slate-400">벽면 결로 · 곰팡이 측정 기록</div>
-          <h2 className="mt-1 text-xl font-bold md:text-2xl">{r.device.label ?? r.device.id}{r.device.location_tag && <span className="font-normal text-slate-300"> · {r.device.location_tag}</span>}</h2>
-          <div className="mt-1 text-sm text-slate-300">{kDate(r.from)} ~ {kDate(new Date(new Date(r.to).getTime() - 1))} ({days}일간 30초마다 측정)</div>
-        </div>
-        <div className={`flex items-start gap-3 px-6 py-5 md:px-8 ${STATE[level].soft} ring-1 ring-inset`}>
-          <span className="mt-1.5 h-3 w-3 shrink-0 rounded-full" style={{ background: STATE[level].color }} aria-hidden />
-          <div>
-            <div className={`text-xs font-semibold ${STATE[level].text}`}>한 줄 요약</div>
-            <p className="mt-0.5 text-lg font-semibold leading-snug md:text-xl">{headline}</p>
-          </div>
-        </div>
+  return <div className="dashboard report-page">
+    <div className="page-eyebrow print:hidden"><span>내 공간의 기록</span><span>대시보드 / 측정 리포트</span></div>
+    <header className="dashboard-heading print:hidden"><div><h1>우리 집의 기록을 차곡차곡<span>.</span></h1><p>기간을 선택하고, 온도와 습도의 변화를 편하게 살펴보세요.</p></div><button className="button secondary" onClick={() => setMode(demo ? "live" : "demo")}>{demo ? "내 기기 기록 보기" : "샘플 리포트 보기"}<Icon name="arrow" /></button></header>
+    {demo && <div className="demo-banner print:hidden" role="status"><div><strong>샘플 리포트</strong><span>가상 데이터입니다. 날짜 선택과 PDF 저장을 미리 확인할 수 있어요.</span></div></div>}
+    <form className="report-filters glass-panel print:hidden" onSubmit={e => { e.preventDefault(); if (!invalid) { if (!dirty && !demo) readings.refetch(); setPeriod({ ...draft }); } }}>
+      <div className="filter-heading"><Icon name="report" /><div><h2>어떤 기간을 살펴볼까요?</h2><p>선택한 종료일까지 포함해 조회합니다. 한국 시간 기준.</p></div></div>
+      <div className="quick-periods" role="group" aria-label="빠른 조회 기간">
+        {([1, 7, 30] as const).map(days => {
+          const preset = quickPeriod(days);
+          const active = !dirty && period.from === preset.from && period.to === preset.to;
+          return <button key={days} type="button" aria-pressed={active} disabled={saving} onClick={() => { const next = quickPeriod(days); setDraft(next); setPeriod(next); setPdfError(""); }}>{days === 1 ? "오늘" : `최근 ${days}일`}</button>;
+        })}
+      </div>
+      <div className="filter-fields">
+        <label><span>측정 공간</span><select value={demo ? "sample" : device?.id ?? ""} onChange={e => setPicked(e.target.value)} disabled={demo || !devices.data?.length}>{demo ? <option value="sample">나의 방 · 샘플</option> : devices.data?.length ? devices.data.map(d => <option key={d.id} value={d.id}>{d.label || d.id}</option>) : <option value="">연결된 기기 없음</option>}</select></label>
+        <label><span>시작일</span><input type="date" required aria-describedby="period-message" value={draft.from} max={draft.to || koreaDay()} onInput={e => setDraft({ ...draft, from: e.currentTarget.value })} onChange={e => setDraft({ ...draft, from: e.target.value })} /></label>
+        <label><span>종료일</span><input type="date" required aria-describedby="period-message" value={draft.to} min={draft.from} max={koreaDay()} onInput={e => setDraft({ ...draft, to: e.currentTarget.value })} onChange={e => setDraft({ ...draft, to: e.target.value })} /></label>
+        <button className="button primary" type="submit" disabled={!!invalid || (!demo && !device) || (!demo && readings.isFetching)}><Icon name="chart" />{!demo && readings.isFetching ? "불러오는 중…" : "기록 조회"}</button>
+      </div>
+      <p id="period-message" className={invalid ? "filter-message invalid" : "filter-message"} role="status">{invalid || (dirty ? "날짜를 바꿨어요. ‘기록 조회’를 눌러 적용해 주세요." : "일별 평균과 시간별 평균으로 측정 기록을 확인할 수 있어요.")}</p>
+    </form>
+    {failed && <div className="empty-card print:hidden" role="alert"><Icon name="wall" className="h-8 w-8" /><h2>측정 기록을 불러오지 못했어요</h2><p>서버 연결을 확인하거나 샘플 리포트로 먼저 살펴보세요.</p><button className="button secondary" onClick={() => devices.isError ? devices.refetch() : readings.refetch()}>다시 시도</button></div>}
+    {busy && <div className="loading-card print:hidden" role="status">측정 기록을 정리하고 있어요…</div>}
+    {!busy && !failed && <article className="report-document">
+      <header className="report-document-heading"><div><span className="section-kicker">INDOOR ENVIRONMENT REPORT</span><h2>{title} 측정 리포트</h2><p>{dateLabel(period.from, true)} — {dateLabel(period.to, true)} <span>· {days}일 · 한국 시간</span></p></div><button type="button" className="button primary print:hidden" disabled={!hasData || dirty || !!invalid || saving} onClick={async () => { setSaving(true); setPdfError(""); try { await downloadReportPdf({ title, period, rows, daily, sample: demo, averages: summary.map(item => item.stats.mean), extremes: summary.map(item => ({ min: item.stats.min, max: item.stats.max })) }); } catch { setPdfError("PDF를 저장하지 못했어요. 잠시 후 다시 시도해 주세요."); } finally { setSaving(false); } }}><Icon name="report" />{saving ? "PDF 만드는 중…" : "PDF 저장"}</button></header>
+      {pdfError && <p className="filter-message invalid" role="alert">{pdfError}</p>}
+      {demo && <p className="print-sample-label">샘플 데이터 · 실제 측정 결과가 아닙니다.</p>}
+      <div className="report-summary">{summary.map(item => <section key={item.name} className={`report-stat glass-panel ${item.className}`}><div><span className="stat-icon"><Icon name={item.icon} /></span><h3>평균 {item.name}</h3></div><p>{fmt(item.stats.mean)}<span>{item.unit}</span></p><div className="stat-extremes"><span>최저 <b>{fmt(item.stats.min)}{item.unit}</b></span><span>최고 <b>{fmt(item.stats.max)}{item.unit}</b></span></div><small>평균·최고·최저 모두 수신된 시간별 평균 기준</small></section>)}</div>
+      <section className="report-records glass-panel">
+        <div className="report-table-heading"><div><h3>날짜별 측정 기록</h3><p>{daily ? "날짜별 평균값" : "시간별 평균값"} · {rows.length.toLocaleString()}개 행{!daily && " · 측정 시간 기준"}</p></div><div className="range-tabs print:hidden" role="group" aria-label="리포트 집계 단위"><button type="button" aria-pressed={daily} onClick={() => setDaily(true)}>일별 평균</button><button type="button" aria-pressed={!daily} onClick={() => setDaily(false)}>시간별 평균</button></div></div>
+        {!hasData ? <div className="report-empty"><Icon name="report" className="h-8 w-8" /><h3>{!demo && !device ? "연결된 측정 기기가 없어요" : "이 기간의 기록이 아직 없어요"}</h3><p>다른 날짜를 선택하거나 기기 연결 상태를 확인해 주세요.</p></div> : <div className="report-table-scroll" tabIndex={0} role="region" aria-label="온도 및 습도 측정 기록"><table className="report-table"><caption className="sr-only">{title}, {period.from}부터 {period.to}까지 {daily ? "일별" : "시간별"} 실내 온도·습도·벽면 온도 평균</caption><thead><tr><th scope="col">{daily ? "측정 날짜" : "측정 일시"}</th><th scope="col" className="air-text">실내 온도 <span>°C</span></th><th scope="col" className="humidity-text">실내 습도 <span>%</span></th><th scope="col" className="wall-text">벽면 온도 <span>°C</span></th></tr></thead><tbody>{rows.map(row => <tr key={`${row.date}/${row.probe}`}><th scope="row"><span>{dateLabel(row.date, daily)}</span><small>{row.probe}{!row.count && " · 수신 기록 없음"}</small></th><td className="air-text">{fmt(row.air)}</td><td className="humidity-text">{fmt(row.humidity)}</td><td className="wall-text">{fmt(row.wall)}</td></tr>)}</tbody></table></div>}
+        <div className="report-table-note"><Icon name="shield" /><p>일별 값은 한국 시간 00:00~23:59의 수신된 시간별 집계값을 평균한 값입니다. 센서가 여러 개면 각각 표시하며, 기록이 없는 날은 ‘—’로 표시합니다. 오늘은 현재까지의 기록입니다.</p></div>
       </section>
-
-      {/* 큰 숫자 */}
-      <section className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <Kpi label="곰팡이가 자라기 쉬웠던 시간" value={riskH.toFixed(0)} unit="시간" note={`하루 평균 ${(riskH / days * 60).toFixed(0)}분`} color={STATE.ALERT.color} />
-        <Kpi label="벽에 물이 맺힌 시간" value={wetH.toFixed(0)} unit="시간" note="결로 조건" color={STATE.CONDENSING.color} />
-        <Kpi label="위험했던 날" value={`${riskDays}`} unit={`/ ${days}일`} note="하루 중 한 번이라도" color={STATE.WATCH.color} />
-        <Kpi label="벽면 평균 습도" value={fmt(r.mean_rh_surf, 0)} unit="%" note="기준 80% 미만이 안전" color={(r.mean_rh_surf ?? 0) >= 80 ? STATE.CONDENSING.color : STATE.SAFE.color} />
-      </section>
-
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* 평균 습도 vs 기준 */}
-        <Card title="벽면 습도, 기준과 비교하면?" desc="벽에 닿은 공기의 습도가 80%를 넘으면 곰팡이가 자라기 시작합니다 (국제 기준 ISO 13788).">
-          <HumidityBar value={r.mean_rh_surf} />
-        </Card>
-
-        {/* 단열 점수 */}
-        <Card title="벽의 단열 상태는?" desc="바깥 추위가 방 안쪽 벽면까지 얼마나 전해지는지를 0~1 점수로 나타낸 값입니다. 높을수록 단열이 잘 된 벽입니다.">
-          <InsulationBar value={f} />
-          <p className={`mt-4 rounded-xl p-3 text-sm ${insulationWeak ? "bg-red-50 text-red-900" : "bg-slate-50 text-slate-700"}`}>
-            {f == null
-              ? "바깥이 충분히 춥지 않은 날만 있어서 아직 점수를 낼 수 없습니다. 겨울철(실내외 온도차 10℃ 이상)에 다시 확인하세요."
-              : insulationWeak
-                ? "설계 기준(0.70)보다 낮습니다. 이 경우 환기만으로는 벽이 젖는 것을 막기 어려울 수 있습니다."
-                : "설계 기준(0.70) 이상입니다. 벽 자체보다는 실내 습도 관리가 더 중요한 상태입니다."}
-          </p>
-        </Card>
-      </div>
-
-      {/* 날짜별 */}
-      <Card title="날짜별 위험 시간" desc="막대가 길수록 그날 벽면이 곰팡이가 자라기 쉬운 상태로 오래 있었다는 뜻입니다.">
-        {r.diagnostics.length ? (
-          <ResponsiveContainer width="100%" height={240}>
-            <BarChart data={r.diagnostics.map((d) => ({ day: kDate(d.day), h: +(d.minutes_alert / 60).toFixed(1) }))} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
-              <CartesianGrid vertical={false} stroke="#e2e8f0" />
-              <XAxis dataKey="day" fontSize={11} stroke="#94a3b8" tickLine={false} axisLine={false} minTickGap={16} />
-              <YAxis unit="h" fontSize={11} stroke="#94a3b8" tickLine={false} axisLine={false} allowDecimals={false} />
-              <Tooltip formatter={(v) => [`${v}시간`, "위험 시간"]} contentStyle={{ borderRadius: 10, border: "1px solid #e2e8f0", fontSize: 12 }} cursor={{ fill: "#f1f5f9" }} />
-              <ReferenceLine y={0} stroke="#cbd5e1" />
-              <Bar dataKey="h" fill={STATE.ALERT.color} radius={[4, 4, 0, 0]} isAnimationActive={false} />
-            </BarChart>
-          </ResponsiveContainer>
-        ) : <p className="text-sm text-slate-400">날짜별 집계가 아직 없습니다 (매일 아침 7시에 전날 분이 계산됩니다).</p>}
-      </Card>
-
-      {/* 행동 안내 */}
-      <Card title="이렇게 해보세요" desc="측정 결과를 바탕으로 한 생활 안내입니다.">
-        <ul className="grid gap-3 md:grid-cols-2">
-          {riskH > 0 && <Tip icon="🪟">습해지는 시간대(샤워 후, 요리 후, 새벽)에 창문을 10분 정도 열어 환기하세요.</Tip>}
-          {riskH > 0 && <Tip icon="🛋️">가구를 벽에서 10cm 이상 띄우면 벽면에 공기가 돌아 덜 습해집니다.</Tip>}
-          {wetH > 0 && <Tip icon="🧽">물이 맺힌 날에는 마른 걸레로 벽과 창틀을 닦아 곰팡이가 자리 잡지 못하게 하세요.</Tip>}
-          {insulationWeak && <Tip icon="📄">벽 단열 점수가 기준보다 낮습니다. 관리인과 상담할 때 이 리포트를 참고자료로 보여줄 수 있습니다.</Tip>}
-          {riskH === 0 && <Tip icon="✅">지금처럼 관리하면 됩니다. 기온이 크게 떨어지는 날엔 알림을 확인하세요.</Tip>}
-          <Tip icon="🔔">앱 알림을 켜두면 위험해지기 1~2시간 전에 미리 알려드립니다.</Tip>
-        </ul>
-      </Card>
-
-      {/* 전문 내용 — 접어둠, 인쇄 시에는 펼침 */}
-      <details className="group rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200 md:p-6">
-        <summary className="cursor-pointer list-none font-semibold">
-          <span className="mr-1 inline-block transition group-open:rotate-90">›</span> 측정 방법과 정확도 (자세히)
-        </summary>
-        <div className="mt-4 grid gap-4 text-sm text-slate-600 md:grid-cols-2">
-          <dl className="grid gap-2">
-            <Term k="벽면 상대습도">벽에 닿은 공기의 습도. 실내 온습도와 벽 표면온도로 계산합니다. 80% 이상이면 곰팡이 위험(ISO 13788), 100%면 결로.</Term>
-            <Term k="결로">벽 온도가 이슬점보다 낮아져 공기 중 수증기가 물방울로 맺히는 현상.</Term>
-            <Term k="단열 점수 (fRsi)">(벽 표면온도 − 바깥온도) ÷ (실내온도 − 바깥온도). 실내외 온도차 10℃ 이상인 새벽 2~6시 값만 사용, 최근 7일 중앙값. 기준 0.70 (DIN 4108-2 · ISO 13788 관행). 현재 {fmt(f, 2)}.</Term>
-          </dl>
-          <dl className="grid gap-2">
-            <Term k="센서">실내 DHT22(온도 ±0.5℃, 습도 ±2~5%), 벽면 DS18B20(±0.5℃)를 단열재로 덮어 부착. 30초 간격.</Term>
-            <Term k="정확도">벽면 습도 계산값은 약 ±4.5%p 오차가 있습니다. 절대값보다는 같은 방의 시간 변화나 방끼리 비교에 적합합니다.</Term>
-            <Term k="보정값">공기온도 {fmt(r.device.calib_t_air, 2)}℃ · 습도 {fmt(r.device.calib_rh, 1)}%p · 벽면온도 {fmt(r.device.calib_t_surf, 2)}℃</Term>
-            <Term k="바깥 기온 출처">기상청 API허브 {r.weather_sources["kma"] ?? 0}시간 · Open-Meteo(CC BY 4.0) {r.weather_sources["open-meteo"] ?? 0}시간</Term>
-          </dl>
-        </div>
-        <p className="mt-4 text-xs text-slate-400">이 자료는 국제 기준 대비 측정값을 정리한 참고자료이며, 건물 하자 여부를 판정하지 않습니다.</p>
-      </details>
-    </article>
-  );
+      <footer className="report-footnote"><span>벽면 곰팡이 예보 · 환경 측정 기록</span><p className="print:hidden">선택한 집계 단위의 모든 행을 PDF로 바로 저장합니다. 한글 글꼴을 유지하기 위해 이미지 기반으로 저장됩니다.</p><p>이 리포트는 측정 환경을 이해하기 위한 참고자료입니다.</p></footer>
+    </article>}
+  </div>;
 }
-
-function Kpi({ label, value, unit, note, color }: { label: string; value: string; unit: string; note: string; color: string }) {
-  return (
-    <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
-      <div className="flex items-center gap-1.5 text-xs font-medium text-slate-500">
-        <span className="h-2 w-2 rounded-full" style={{ background: color }} aria-hidden />{label}
-      </div>
-      <div className="mt-2 text-3xl font-bold tabular-nums tracking-tight md:text-4xl">
-        {value}<span className="ml-1 text-base font-medium text-slate-500">{unit}</span>
-      </div>
-      <div className="mt-1 text-xs text-slate-400">{note}</div>
-    </div>
-  );
-}
-
-function Card({ title, desc, children }: { title: string; desc: string; children: React.ReactNode }) {
-  return (
-    <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200 md:p-6">
-      <h3 className="text-lg font-semibold">{title}</h3>
-      <p className="mb-5 mt-1 text-sm text-slate-500">{desc}</p>
-      {children}
-    </section>
-  );
-}
-
-// 눈금 막대 + 현재 위치 표시. zones: [끝값, 색, 라벨]
-function ZoneBar({ min, max, zones, value, fmtValue }: {
-  min: number; max: number; zones: [number, string, string][]; value: number | null; fmtValue: (v: number) => string;
-}) {
-  const pct = (x: number) => ((Math.min(max, Math.max(min, x)) - min) / (max - min)) * 100;
-  let start = min;
-  return (
-    <div className="pt-8">
-      <div className="relative">
-        {value != null && (
-          <div className="absolute -top-8 -translate-x-1/2 text-center" style={{ left: `${pct(value)}%` }}>
-            <div className="rounded-md bg-slate-900 px-2 py-0.5 text-sm font-bold text-white tabular-nums">{fmtValue(value)}</div>
-            <div className="mx-auto h-0 w-0 border-x-[6px] border-t-[6px] border-x-transparent border-t-slate-900" />
-          </div>
-        )}
-        <div className="flex h-4 gap-0.5 overflow-hidden rounded-full">
-          {zones.map(([end, color]) => {
-            const w = pct(end) - pct(start); start = end;
-            return <div key={end} style={{ width: `${w}%`, background: color }} />;
-          })}
-        </div>
-      </div>
-      <div className="relative mt-2 h-8 text-[11px] leading-tight text-slate-600">
-        {(() => { let s = min; return zones.map(([end, , label]) => {
-          const mid = (pct(s) + pct(end)) / 2; s = end;
-          // 좁은 끝 칸 라벨은 막대 안쪽으로 붙여 잘리지 않게
-          const edge = mid > 94 ? "right" : mid < 6 ? "left" : null;
-          return <span key={end} className={`absolute whitespace-nowrap ${edge === "right" ? "-translate-x-full" : edge ? "" : "-translate-x-1/2"}`}
-            style={{ left: `${edge === "right" ? 100 : edge ? 0 : mid}%` }}>{label}</span>;
-        }); })()}
-      </div>
-    </div>
-  );
-}
-
-const HumidityBar = ({ value }: { value: number | null }) => (
-  <ZoneBar min={40} max={100} value={value} fmtValue={(v) => `평균 ${v.toFixed(0)}%`} zones={[
-    [72, STATE.SAFE.color, "안전"], [80, STATE.WATCH.color, "주의"], [97, STATE.ALERT.color, "곰팡이 위험"], [100, STATE.CONDENSING.color, "결로"],
-  ]} />
-);
-
-const InsulationBar = ({ value }: { value: number | null }) => (
-  <ZoneBar min={0.5} max={1} value={value} fmtValue={(v) => v.toFixed(2)} zones={[
-    [0.7, STATE.CONDENSING.color, "기준 미달"], [0.75, STATE.ALERT.color, "경계"], [0.85, STATE.WATCH.color, "보통"], [1, STATE.SAFE.color, "양호"],
-  ]} />
-);
-
-const Tip = ({ icon, children }: { icon: string; children: React.ReactNode }) => (
-  <li className="flex gap-3 rounded-xl bg-slate-50 p-4 text-sm leading-relaxed text-slate-700">
-    <span className="text-xl" aria-hidden>{icon}</span>{children}
-  </li>
-);
-
-const Term = ({ k, children }: { k: string; children: React.ReactNode }) => (
-  <div>
-    <dt className="font-semibold text-slate-800">{k}</dt>
-    <dd>{children}</dd>
-  </div>
-);
