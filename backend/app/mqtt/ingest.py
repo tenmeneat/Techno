@@ -22,6 +22,42 @@ from app.domain.risk_state import STALE_AFTER_S, RiskMachine
 from app.workers import notifier
 
 log = logging.getLogger(__name__)
+MAX_NOTIFICATION_TASKS = 128
+_notification_tasks: set[asyncio.Task] = set()
+_notification_keys: dict[tuple[str, str], asyncio.Task] = {}
+
+
+def start_notification(coro, *, key=None) -> None:
+    if (key is not None and key in _notification_keys) or len(_notification_tasks) >= MAX_NOTIFICATION_TASKS:
+        # A dropped coroutine must be closed, including when the server is overloaded.
+        coro.close()
+        if len(_notification_tasks) >= MAX_NOTIFICATION_TASKS:
+            log.warning("?? ?? ?? ??; ?? ?? ??")
+        return
+    try:
+        task = asyncio.create_task(coro)
+    except BaseException:
+        coro.close()
+        raise
+    _notification_tasks.add(task)
+    if key is not None:
+        _notification_keys[key] = task
+
+    def finished(done):
+        _notification_tasks.discard(done)
+        if key is not None and _notification_keys.get(key) is done:
+            _notification_keys.pop(key, None)
+        if not done.cancelled() and done.exception() is not None:
+            log.error("????? ?? ?? ??")
+
+    task.add_done_callback(finished)
+
+
+async def stop_notifications() -> None:
+    tasks = list(_notification_tasks)
+    for task in tasks:
+        task.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
 
 
 class Telemetry(BaseModel):
@@ -62,6 +98,8 @@ runtimes: dict[str, Runtime] = defaultdict(Runtime)
 async def set_state(device_id: str, rt: Runtime, new: str, at: datetime):
     if new == rt.state:
         return
+
+    old = rt.state
     async with db().acquire() as con:
         if rt.event_id:  # STALE(벽시계 시작) 뒤 과거 ts 백로그가 와도 종료가 시작보다 앞서지 않게
             at = max(at, rt.event_started)
@@ -74,7 +112,9 @@ async def set_state(device_id: str, rt: Runtime, new: str, at: datetime):
             rt.event_started = at
     rt.state = new
     await broadcast(device_id, {"type": "state", "device_id": device_id, "state": new, "at": at.isoformat()})
-    await notifier.on_state(device_id, new)
+    start_notification(
+        notifier.on_state(device_id, old, new, at)
+    )
 
 
 async def handle_telemetry(home_id: str, device_id: str, msg: Telemetry):
@@ -121,9 +161,12 @@ async def handle_telemetry(home_id: str, device_id: str, msg: Telemetry):
         "forecast": asdict(rt.forecast) if rt.forecast else None,
         "probes": [{**p, "time": at.isoformat()} for p in probes],
     })
-    if rt.forecast:
-        await notifier.on_forecast(device_id, rt.state, rt.forecast)
 
+    if rt.forecast:
+        start_notification(
+            notifier.on_forecast(device_id, rt.state, rt.forecast),
+            key=("forecast", device_id),
+        )
 
 async def handle(m: aiomqtt.Message):
     _, _, home_id, device_id, kind = m.topic.value.split("/", 4)

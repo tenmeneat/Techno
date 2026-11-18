@@ -115,11 +115,13 @@ CREATE TABLE IF NOT EXISTS notification_history (
 
     endpoint text NOT NULL,
 
+    dispatch_id uuid,
+
     notification_type text NOT NULL
         CHECK (notification_type IN ('STATE', 'FORECAST')),
 
     status text NOT NULL DEFAULT 'PENDING'
-        CHECK (status IN ('PENDING', 'SENT', 'FAILED')),
+        CHECK (status IN ('PENDING', 'SENT', 'FAILED', 'UNKNOWN')),
 
     created_at timestamptz NOT NULL DEFAULT now(),
 
@@ -140,3 +142,6 @@ CREATE INDEX IF NOT EXISTS idx_notification_history_type_status
         status,
         created_at DESC
     );
+
+CREATE INDEX IF NOT EXISTS idx_notification_history_pending
+    ON notification_history (created_at) WHERE status = 'PENDING';

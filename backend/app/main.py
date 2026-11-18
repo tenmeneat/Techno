@@ -9,9 +9,10 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api.v1 import devices, events, push, readings, reports, ws
 from app.core import config
+from app.db.migrate import migrate_notifications
 from app.db.pool import close_pool, db, open_pool
 from app.mqtt import ingest
-from app.workers import diagnostics, weather_sync
+from app.workers import diagnostics, notifier, weather_sync
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -19,14 +20,23 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     await open_pool()
-    # 재시작 전 열려 있던 이벤트 정리 (메모리 상태는 새로 시작하므로)
-    await db().execute("UPDATE events SET ended_at = now() WHERE ended_at IS NULL")
-    tasks = [asyncio.create_task(c) for c in
-             (ingest.run(), ingest.watch_stale(), weather_sync.run(), diagnostics.run())]
-    yield
-    for t in tasks:
-        t.cancel()
-    await close_pool()
+    tasks = []
+    try:
+        await migrate_notifications()
+        await notifier.reconcile_history()
+        # Keep the existing ingest startup behavior; restore() belongs to the other branch.
+        await db().execute("UPDATE events SET ended_at = now() WHERE ended_at IS NULL")
+        tasks = [asyncio.create_task(c) for c in (
+            ingest.run(), ingest.watch_stale(), weather_sync.run(),
+            diagnostics.run(), notifier.maintain_history(),
+        )]
+        yield
+    finally:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        await ingest.stop_notifications()
+        await close_pool()
 
 
 async def require_token(authorization: str = Header("")):
