@@ -165,6 +165,38 @@ def test_all_probes_broken_goes_to_dead_letter():
     assert "dev1" not in ingest.runtimes or env.rt.state == "SAFE"
 
 
+
+def test_fault_log_only_on_change(caplog=None):
+    """같은 고장이 계속되면 경고는 한 번만, 복구되면 정상 복귀 로그 한 번."""
+    import logging
+
+    class Grab(logging.Handler):
+        def __init__(self):
+            super().__init__()
+            self.msgs = []
+
+        def emit(self, r):
+            self.msgs.append((r.levelname, r.getMessage()))
+    h = Grab()
+    ingest.log.addHandler(h)
+    ingest.log.setLevel(logging.INFO)
+    try:
+        env = Env()
+        run(env, series(NOW - 900, 10, t_surf=(-127.0, 15.0)), now=lambda p: p["ts"])   # 10분 동안 계속 고장
+        run(env, series(NOW - 300, 5, t_surf=(15.0, 15.0)), now=lambda p: p["ts"])      # 복구
+    finally:
+        ingest.log.removeHandler(h)
+    warns = [m for lv, m in h.msgs if "고장 프로브 발생" in m]
+    fixed = [m for lv, m in h.msgs if "정상 복귀" in m]
+    assert len(warns) == 1 and "p0" in warns[0]
+    assert len(fixed) == 1
+
+
+def test_all_probes_fault_reason_is_tagged():
+    env = Env()
+    run(env, [payload(NOW, t_surf=(-127.0, 85.0))], now=NOW)
+    assert "ALL_PROBES_FAULT" in env.db.dead[0][2]
+
 def test_nan_and_null_values():
     env = Env()
     run(env, ['{"v":1,"ts":%d,"seq":0,"t_air":NaN,"rh":50,"t_surf":[15],"probe_ids":["p0"]}' % NOW], now=NOW)
