@@ -62,6 +62,7 @@ class Runtime:
     last_ts: int = 0      # 판정에 반영한 마지막 기기 시각. 이 이하로 오는 메시지는 저장만 한다
     unnotified_from: str | None = None  # 백로그로 상태가 바뀌어 아직 알리지 못했을 때, 사용자가 마지막으로 안 상태
     pre_stale: str = "SAFE"  # STALE 직전 상태. 통신 끊김은 위험도를 바꾸지 않으므로 알림 비교는 이 값 기준
+    faulty: frozenset = frozenset()  # 지금 고장으로 보고 있는 프로브. 바뀔 때만 로그를 남긴다(30초마다 쌓이지 않게)
 
 
 runtimes: dict[str, Runtime] = defaultdict(Runtime)
@@ -136,6 +137,18 @@ async def store(home_id: str, device_id: str, msg: Telemetry, good: list[tuple[s
     return probes
 
 
+def _log_fault_change(device_id: str, faulty: frozenset, values: dict) -> None:
+    """고장 프로브 목록이 바뀔 때만 로그. 같은 고장이 계속되면 조용히 둔다."""
+    rt = runtimes[device_id]
+    if faulty == rt.faulty:
+        return
+    if new := faulty - rt.faulty:
+        log.warning("%s 고장 프로브 발생: %s", device_id, {p: values.get(p) for p in sorted(new)})
+    if fixed := rt.faulty - faulty:
+        log.info("%s 프로브 정상 복귀: %s", device_id, sorted(fixed))
+    rt.faulty = faulty
+
+
 async def handle_telemetry(home_id: str, device_id: str, msg: Telemetry, now: float | None = None):
     now = time.time() if now is None else now
 
@@ -143,11 +156,12 @@ async def handle_telemetry(home_id: str, device_id: str, msg: Telemetry, now: fl
     if why := validate.check_ts(msg.ts, now) or validate.check_air(msg.t_air, msg.rh):
         raise Rejected(why)
     good = [(p, t) for p, t in zip(msg.probe_ids, msg.t_surf) if validate.surface_ok(t)]
-    if len(good) < len(msg.t_surf):
-        log.warning("%s 고장 프로브 제외: %s", device_id,
-                    [(p, t) for p, t in zip(msg.probe_ids, msg.t_surf) if not validate.surface_ok(t)])
+    _log_fault_change(device_id, frozenset(p for p, t in zip(msg.probe_ids, msg.t_surf) if not validate.surface_ok(t)),
+                      dict(zip(msg.probe_ids, msg.t_surf)))
     if not good:
-        raise Rejected(f"유효한 벽면 프로브 없음: {msg.t_surf}")
+        # 판정하지 않는다. 5분 뒤 STALE로 보이는 것은 의도된 보수적 동작(마지막 '안전'을 계속 보여주지 않게).
+        # '센서 확인' 같은 별도 상태를 화면에 띄우려면 StateName 계약 변경(§11.4)이 필요하다.
+        raise Rejected(f"ALL_PROBES_FAULT 유효한 벽면 프로브 없음: {msg.t_surf}")
 
     # 2) 저장 (트랜잭션)
     probes = await store(home_id, device_id, msg, good)
