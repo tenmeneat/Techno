@@ -1,20 +1,24 @@
 // 결로 센서 펌웨어 (§8, 계약 §9.2). 보드: ESP32 Dev Module
 // 라이브러리 관리자에서 설치: PubSubClient, DHT sensor library(Adafruit), OneWire, DallasTemperature
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <PubSubClient.h>
 #include <DHT.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
 #include <time.h>
+#include "isrg_root_x1.h"
 
-// ---- 여기만 고치면 됨 ----
-const char* WIFI_SSID = "";
+// ---- 여기만 채우면 됨 (비밀번호를 넣은 채로 커밋하지 말 것) ----
+const char* WIFI_SSID = "";          // 2.4GHz 와이파이만 됨
 const char* WIFI_PASS = "";
-const char* MQTT_HOST = "10.120.100.97";  // 서버 PC IP. 핫스팟을 다시 켜면 바뀔 수 있음 (ipconfig로 확인)
-const uint16_t MQTT_PORT = 1883;
+const char* MQTT_HOST = "";          // HiveMQ Cloud Cluster URL (예: abcd1234.s1.eu.hivemq.cloud)
+const uint16_t MQTT_PORT = 8883;     // HiveMQ = 8883(TLS). 서버 PC 로컬 브로커로 테스트할 때만 1883 + MQTT_HOST에 PC IP
+const char* MQTT_USER = "";          // HiveMQ 기기용 계정 (예: dg-device). 로컬 브로커면 비워둠
+const char* MQTT_PASS = "";
 const char* HOME_ID = "home-a";
-const char* FW = "0.1";
-// -------------------------
+const char* FW = "0.2";
+// -----------------------------------------------------------
 
 const uint8_t PIN_DHT = 4, PIN_ONEWIRE = 5;  // §8 핀맵. DS18B20 버스에 4.7kΩ 풀업 필수
 const uint32_t SAMPLE_MS = 30000;
@@ -23,8 +27,9 @@ const int MAX_PROBES = 4;
 DHT dht(PIN_DHT, DHT22);
 OneWire ow(PIN_ONEWIRE);
 DallasTemperature ds(&ow);
-WiFiClient net;
-PubSubClient mqtt(net);
+WiFiClient plainNet;
+WiFiClientSecure tlsNet;
+PubSubClient mqtt;
 
 DeviceAddress addr[MAX_PROBES];
 char probeId[MAX_PROBES][17];
@@ -65,11 +70,13 @@ bool send(const Sample& s) {
 void connectMqtt() {
   char st[64];
   snprintf(st, sizeof st, "%s/status", base);
-  if (mqtt.connect(devId, nullptr, nullptr, st, 1, true, "offline")) {  // LWT: 끊기면 브로커가 offline 발행
+  const char* user = *MQTT_USER ? MQTT_USER : nullptr;  // 빈 아이디는 '계정 없음'으로 보냄
+  if (mqtt.connect(devId, user, MQTT_PASS, st, 1, true, "offline")) {  // LWT: 끊기면 브로커가 offline 발행
     mqtt.publish(st, "online", true);
     Serial.println("MQTT 연결됨");
   } else {
-    Serial.printf("MQTT 실패 state=%d — IP·방화벽·같은 와이파이인지 확인\n", mqtt.state());
+    // -2: 주소·포트·인증서 문제 / 4·5: 아이디·비번 틀림
+    Serial.printf("MQTT 실패 state=%d — 가이드의 '문제 해결' 표 참고\n", mqtt.state());
   }
 }
 
@@ -87,6 +94,10 @@ void setup() {
   snprintf(devId, sizeof devId, "dev-%06llx", (ESP.getEfuseMac() >> 24) & 0xFFFFFF);
   snprintf(base, sizeof base, "dg/v1/%s/%s", HOME_ID, devId);
   Serial.printf("\n기기 ID: %s\n", devId);
+  if (!*WIFI_SSID || !*MQTT_HOST) {  // 설정 안 채운 채 업로드한 경우
+    Serial.println("WIFI_SSID / MQTT_HOST가 비어 있음 — 파일 맨 위 설정을 채우고 다시 업로드");
+    while (true) delay(1000);
+  }
 
   dht.begin();
   ds.begin();
@@ -107,6 +118,12 @@ void setup() {
   while (time(nullptr) < 1700000000) delay(500);  // 동기화 전 시각(1970년)은 서버가 버린다
   Serial.println("시간 동기화 완료");
 
+  if (MQTT_PORT == 8883) {  // TLS는 시간이 맞아야 인증서 검사가 통과하므로 NTP 뒤에 둔다
+    tlsNet.setCACert(ISRG_ROOT_X1);  // 접속이 안 될 때 원인 가리기용으로만: tlsNet.setInsecure();
+    mqtt.setClient(tlsNet);
+  } else {
+    mqtt.setClient(plainNet);
+  }
   mqtt.setServer(MQTT_HOST, MQTT_PORT);
   mqtt.setBufferSize(512);  // 기본 256B면 프로브 3개부터 잘림
 }
