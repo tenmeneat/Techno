@@ -22,8 +22,9 @@ SOURCES = {
 async def series(device_id: str, from_: datetime = Query(alias="from"), to: datetime = Query(),
                  bucket: Literal["raw", "1m", "1h", "1d"] = "1m"):
     src, col, width = SOURCES[bucket]
+    # 버킷 경계를 KST로 맞춘다. 없으면 1d 버킷이 UTC 자정(= KST 09:00)에서 잘린다
     rows = await db().fetch(
-        f"""SELECT time_bucket($4::interval, {col}) AS time, probe_id,
+        f"""SELECT time_bucket($4::interval, {col}, 'Asia/Seoul') AS time, probe_id,
                    avg(t_air) AS t_air, avg(rh) AS rh, avg(t_surf) AS t_surf, avg(t_dew) AS t_dew, avg(rh_surf) AS rh_surf
             FROM {src} WHERE device_id = $1 AND {col} >= $2 AND {col} < $3
             GROUP BY 1, 2 ORDER BY 1""", device_id, from_, to, width)
